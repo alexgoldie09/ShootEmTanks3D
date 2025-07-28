@@ -22,14 +22,14 @@
 
 using UnityEngine;
 
-public readonly struct Coords 
+public struct Coords 
 {
 
     // Public fields representing spatial coordinates.
-    public readonly float x;
-    public readonly float y;
-    public readonly float z;
-    public readonly float w;
+    public float x;
+    public float y;
+    public float z;
+    public float w;
     
     #region Constructors
     // Constructor for 2D coordinates (defaults z to -1).

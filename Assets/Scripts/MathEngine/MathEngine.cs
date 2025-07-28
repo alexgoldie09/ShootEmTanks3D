@@ -34,6 +34,12 @@ public static class MathEngine
         return new Coords(vector.x / length, vector.y / length, vector.z / length);
     }
     
+    // Returns the scalar magnitude (Euclidean length) of a Coords vector.
+    public static float Magnitude(Coords a)
+    {
+        return Mathf.Sqrt(a.x * a.x + a.y * a.y + a.z * a.z);
+    }
+    
     // Calculate the Euclidean distance between two points
     public static float Distance(Coords a, Coords b)
     {
@@ -57,6 +63,13 @@ public static class MathEngine
             a.z * b.x - a.x * b.z,
             a.x * b.y - a.y * b.x
         );
+    }
+    
+    // Reflects a vector off a surface with the given normal.
+    public static Coords Reflect(Coords vector, Coords normal)
+    {
+        float dot = Dot(vector, normal);
+        return vector - (normal * (dot * 2f));
     }
     
     // Returns the angle in radians between two vectors
