@@ -63,8 +63,19 @@ public class TankController : MonoBehaviour
             yawMatrix.GetValue(2, 2)
         );
 
-        // Apply movement along forward vector
-        position += forward * (moveSpeed * moveInput * deltaTime);
+        // --- NEW: movement proposal ---
+        Coords proposedMove = forward * (moveSpeed * moveInput * deltaTime);
+        Coords proposedPos  = position + proposedMove;
+
+        // --- Ask CollisionEngine to clamp against walls ---
+        CustomCollider col = GetComponent<CustomCollider>();
+        if (col != null && CollisionEngine.Instance != null)
+        {
+            proposedPos = CollisionEngine.Instance.ClampToBounds(col, proposedPos);
+        }
+
+        // --- Accept corrected position ---
+        position = proposedPos;
     }
     #endregion
 

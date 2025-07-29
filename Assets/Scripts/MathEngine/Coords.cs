@@ -64,6 +64,9 @@ public struct Coords
     
     // Construct from Unity's Vector3 with an additional w value.
     public Coords(Vector3 vec, float w = 0f) : this(vec.x, vec.y, vec.z, w) {}
+    
+    // A Coords representing (0, 0, 0). Useful for resetting velocity, acceleration, or position.
+    public static Coords Zero() => new Coords(0f, 0f, 0f);
     #endregion
     
     #region Conversion Methods
@@ -75,6 +78,10 @@ public struct Coords
 
     // Returns a string representation
     public override string ToString() => $"({x}, {y}, {z})";
+    
+    // Returns the inverse of a vector
+    public static Coords operator -(Coords a) =>
+        new Coords(-a.x, -a.y, -a.z);
     #endregion
 
     #region Vector Arithmetic Operators

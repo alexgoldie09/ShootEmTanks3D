@@ -1,32 +1,47 @@
 /*
- * Collider.cs
- * ----------------------------------------------------------------
- * A MonoBehaviour component that represents a collision shape using a custom math system.
- *
- * PURPOSE:
- * - Serves as a unified interface for collision objects in the scene.
- * - Integrates with a central collision engine using Coords and CustomBounds.
- *
- * FEATURES:
- * - Supports POINT, AABB (box), and SPHERE types.
- * - Automatically registers with the collision engine.
- * - Calculates bounds in world space and handles Gizmo debugging.
- */
+* Collider.cs
+* ----------------------------------------------------------------
+* A MonoBehaviour component that acts as a physics collider.
+*
+* PURPOSE:
+* - Represents a physical collision shape using a custom math system (Coords, CustomBounds).
+* - Automatically registers/unregisters with the central CollisionEngine.
+* - Updates its bounds each frame based on its shape type and transform.
+*
+* FEATURES:
+* - Supports POINT, SPHERE, AABB, and PLAYER collider types.
+* - AABB colliders can be flagged as Ground or Wall for specialized behavior.
+* - PLAYER treated as a sphere collider with custom push behavior.
+* - Uses Coords and CustomBounds for custom physics math integration.
+* - Visualizes bounds in the Unity Editor via Gizmos.
+*/
 
+using System;
 using UnityEngine;
 
-public class Collider : MonoBehaviour
+public class CustomCollider : MonoBehaviour
 {
     // Enum to define the shape of the collider.
     public enum ColliderType
     {
         POINT,
         AXIS_ALIGNED_BOUNDING_BOX,
-        SPHERE
+        SPHERE,
+        PLAYER
     }
 
     [Header("Collider Shape Type")]
-    public ColliderType colliderType = ColliderType.POINT;
+    public ColliderType colliderType = ColliderType.POINT; // Specified collider type in Unity.
+    
+    [Header("AABB Settings")]
+    public bool isGround = false;  // If true, acts like floor.
+    public bool isWall = false;    // If true, acts like wall.
+    
+    [Header("Player Settings")]
+    [Tooltip("Horizontal offset applied to the player collider center.")]
+    public float playerOffsetX = 0f;
+    [Tooltip("Vertical offset applied to the player collider center.")]
+    public float playerOffsetY = 1f;
 
     // The bounds representing this collider in world space.
     [HideInInspector] public CustomBounds colliderBounds;
@@ -63,6 +78,10 @@ public class Collider : MonoBehaviour
     public void UpdateBounds()
     {
         center = new Coords(transform.position);
+        
+        // PLAYER: apply hardcoded Y offset
+        if (colliderType == ColliderType.PLAYER)
+            center += new Coords(playerOffsetX, playerOffsetY, 0f);
 
         Vector3 worldSize = TryGetComponent(out Renderer rend)
             ? rend.bounds.size
@@ -87,15 +106,18 @@ public class Collider : MonoBehaviour
                 radius = diameter / 2f;
                 colliderBounds = new CustomBounds(center, new Coords(diameter, diameter, diameter));
                 break;
+            
+            case ColliderType.PLAYER:
+                // Treat player as a sphere for now
+                radius = size.x / 1f; 
+                colliderBounds = new CustomBounds(center, new Coords(radius * 2f, radius * 2f, radius * 2f));
+                break;
         }
     }
 
     public CustomBounds GetBounds() => colliderBounds;
 
-    public bool Contains(Coords point)
-    {
-        return colliderBounds.Contains(point);
-    }
+    public bool Contains(Coords point) => colliderBounds.Contains(point);
     #endregion
 
     #region Gizmo Debugging
@@ -107,12 +129,28 @@ public class Collider : MonoBehaviour
         switch (colliderType)
         {
             case ColliderType.AXIS_ALIGNED_BOUNDING_BOX:
-                Gizmos.color = Color.green;
+                if (isGround)
+                {
+                    Gizmos.color = Color.green;
+                }
+                else if (isWall)
+                {
+                    Gizmos.color = Color.red;
+                }
+                else
+                {
+                    Gizmos.color = Color.magenta;
+                }
                 Gizmos.DrawWireCube(colliderBounds.Center.ToVector3(), colliderBounds.Size.ToVector3());
                 break;
 
             case ColliderType.SPHERE:
                 Gizmos.color = Color.yellow;
+                Gizmos.DrawWireSphere(colliderBounds.Center.ToVector3(), radius);
+                break;
+            
+            case ColliderType.PLAYER:
+                Gizmos.color = Color.blue;
                 Gizmos.DrawWireSphere(colliderBounds.Center.ToVector3(), radius);
                 break;
 

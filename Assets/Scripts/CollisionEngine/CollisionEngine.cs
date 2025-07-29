@@ -1,7 +1,7 @@
 /*
 * CollisionEngine.cs
 * ----------------------------------------------------------------
-* Singleton system for handling 3D collision detection between Collider components.
+* Singleton system for handling 3D collision detection between CustomCollider components.
 * 
 * PURPOSE:
 * - Registers and tracks all colliders in the scene.
@@ -23,7 +23,7 @@ public class CollisionEngine : MonoBehaviour
     public static CollisionEngine Instance { get; private set; }
 
     // All active colliders
-    private List<Collider> colliders = new List<Collider>();
+    private List<CustomCollider> colliders = new List<CustomCollider>();
 
     #region Unity Lifecycle
     private void Awake()
@@ -42,14 +42,14 @@ public class CollisionEngine : MonoBehaviour
     
     #region Collision System
     // Registers a collider with the engine.
-    public void RegisterCollider(Collider col)
+    public void RegisterCollider(CustomCollider col)
     {
         if (!colliders.Contains(col))
             colliders.Add(col);
     }
     
     // Deregisters a collider from the engine.
-    public void DeregisterCollider(Collider col)
+    public void DeregisterCollider(CustomCollider col)
     {
         if (colliders.Contains(col))
             colliders.Remove(col);
@@ -68,49 +68,62 @@ public class CollisionEngine : MonoBehaviour
     }
     #endregion
     
-    // Dispatches shape-based collision logic between two colliders.
     #region Dispatcher
-    private static void HandleCollision(Collider a, Collider b)
+    // Dispatches shape-based collision logic depending on collider types.
+    private static void HandleCollision(CustomCollider a, CustomCollider b)
     {
         var typeA = a.colliderType;
         var typeB = b.colliderType;
         
+        // Always update bounds
         a.UpdateBounds();
         b.UpdateBounds();
 
-        // Normalize ordering if needed
-        if (typeA == Collider.ColliderType.SPHERE && typeB == Collider.ColliderType.AXIS_ALIGNED_BOUNDING_BOX)
+        // --- Sphere vs AABB ---
+        if ((typeA == CustomCollider.ColliderType.SPHERE && typeB == CustomCollider.ColliderType.AXIS_ALIGNED_BOUNDING_BOX) ||
+            (typeA == CustomCollider.ColliderType.AXIS_ALIGNED_BOUNDING_BOX && typeB == CustomCollider.ColliderType.SPHERE))
         {
-            HandleAABBSphereCollision(b, a);
+            var sphere = typeA == CustomCollider.ColliderType.SPHERE ? a : b;
+            var box    = typeA == CustomCollider.ColliderType.AXIS_ALIGNED_BOUNDING_BOX ? a : b;
+
+            HandleAABBSphereCollision(box, sphere);
+            return;
         }
-        else if (typeA == Collider.ColliderType.AXIS_ALIGNED_BOUNDING_BOX && typeB == Collider.ColliderType.SPHERE)
-        {
-            HandleAABBSphereCollision(a, b);
-        }
-        else if (typeA == Collider.ColliderType.AXIS_ALIGNED_BOUNDING_BOX && typeB == Collider.ColliderType.AXIS_ALIGNED_BOUNDING_BOX)
-        {
-            HandleAABBAABBCollision(a, b);
-        }
-        else if (typeA == Collider.ColliderType.SPHERE && typeB == Collider.ColliderType.SPHERE)
+
+        // --- Sphere vs Sphere ---
+        if (typeA == CustomCollider.ColliderType.SPHERE && typeB == CustomCollider.ColliderType.SPHERE)
         {
             HandleSphereSphereCollision(a, b);
+            return;
         }
-        else if (typeA == Collider.ColliderType.POINT || typeB == Collider.ColliderType.POINT)
+        
+        // --- Player vs (Sphere, AABB, or Point) ---
+        if (typeA == CustomCollider.ColliderType.PLAYER || typeB == CustomCollider.ColliderType.PLAYER)
         {
-            HandlePointCollision(a, b);
+            var player = typeA == CustomCollider.ColliderType.PLAYER ? a : b;
+            var other  = typeA == CustomCollider.ColliderType.PLAYER ? b : a;
+
+            HandlePlayerCollision(player, other);
+            return;
+        }
+
+        // --- Point vs (Sphere or AABB) ---
+        if (typeA == CustomCollider.ColliderType.POINT || typeB == CustomCollider.ColliderType.POINT)
+        {
+            var point = typeA == CustomCollider.ColliderType.POINT ? a : b;
+            var other = typeA == CustomCollider.ColliderType.POINT ? b : a;
+
+            if (other.colliderType == CustomCollider.ColliderType.SPHERE)
+                HandlePointToSphere(point, other);
+            else if (other.colliderType == CustomCollider.ColliderType.AXIS_ALIGNED_BOUNDING_BOX)
+                HandlePointToAABB(point, other);
         }
     }
     #endregion
 
     #region Type-Based Handlers
-    private static void HandleAABBAABBCollision(Collider a, Collider b)
-    {
-        if (!a.GetBounds().Intersects(b.GetBounds())) return;
-
-        Debug.Log($"📦 AABB collided with 📦 AABB → {a.name} ↔ {b.name}");
-    }
-
-    private static void HandleSphereSphereCollision(Collider a, Collider b)
+    // Handles Sphere - Sphere Collisions
+    private static void HandleSphereSphereCollision(CustomCollider a, CustomCollider b)
     {
         Coords posA = a.GetBounds().Center;
         Coords posB = b.GetBounds().Center;
@@ -122,23 +135,40 @@ public class CollisionEngine : MonoBehaviour
         
         if (distance < minDistance)
         {
-            Debug.Log($"⚪ Sphere ↔ ⚪ Sphere → {a.name} hit {b.name}");
+            // Normal pointing from B → A
+            Coords normal = MathEngine.Normalize(posA - posB);
 
-            Vector3 normal = (posA - posB).ToVector3().normalized;
-            Rigidbody rbA = a.GetComponent<Rigidbody>();
-            Rigidbody rbB = b.GetComponent<Rigidbody>();
+            // Penetration depth
+            float penetration = minDistance - distance;
 
-            float bounceForce = 5f;
+            PhysicsBody bodyA = a.GetComponent<PhysicsBody>();
+            PhysicsBody bodyB = b.GetComponent<PhysicsBody>();
 
-            if (rbA)
-                rbA.AddForce(normal * bounceForce, ForceMode.Impulse);
+            // Correct positions to separate spheres (half each if both dynamic)
+            if (bodyA != null && bodyB != null)
+            {
+                a.transform.position += (normal * (penetration * 0.5f)).ToVector3();
+                b.transform.position -= (normal * (penetration * 0.5f)).ToVector3();
+            }
+            else if (bodyA != null)
+            {
+                a.transform.position += (normal * penetration).ToVector3();
+            }
+            else if (bodyB != null)
+            {
+                b.transform.position -= (normal * penetration).ToVector3();
+            }
 
-            if (rbB)
-                rbB.AddForce(-normal * bounceForce, ForceMode.Impulse);
+            // Apply bounce velocities
+            if (bodyA != null)
+                bodyA.ReflectFromNormal(normal);
+            if (bodyB != null)
+                bodyB.ReflectFromNormal(-normal);
         }
     }
-
-    private static void HandleAABBSphereCollision(Collider box, Collider sphere)
+    
+    // Handles AABB - Sphere Collisions
+    private static void HandleAABBSphereCollision(CustomCollider box, CustomCollider sphere)
     {
         Coords center = sphere.GetBounds().Center;
         Coords min = box.GetBounds().Min;
@@ -153,38 +183,71 @@ public class CollisionEngine : MonoBehaviour
 
         if (distance < sphere.radius)
         {
-            Debug.Log($"📦 AABB ↔ ⚪ Sphere → {sphere.name} hit {box.name}");
-
-            Vector3 normal = (center - closestPoint).ToVector3().normalized;
-            Rigidbody rb = sphere.GetComponent<Rigidbody>();
-
-            if (rb)
+            // Debug.Log($"📦 AABB ↔ ⚪ Sphere → {sphere.name} hit {box.name}");
+            
+            PhysicsBody body = sphere.GetComponent<PhysicsBody>();
+            if (body != null)
             {
-                float bounceForce = 5f;
-                rb.AddForce(normal * bounceForce, ForceMode.Impulse);
+                // Find penetration depth
+                var (penX, penY, penZ) = GetPenetrationDepth(center, box.GetBounds());
+
+                // --- Ground ---
+                if (penY <= penX && penY <= penZ && box.isGround)
+                {
+                    Coords normal = (center.y > max.y) ? new Coords(0f, 1f, 0f) : new Coords(0f, -1f, 0f);
+                    float groundHeight = (normal.y > 0) ? max.y + sphere.radius : min.y - sphere.radius;
+                    body.StopOnGround(normal, groundHeight);
+                }
+                // --- Wall X ---
+                else if (penX <= penY && penX <= penZ && box.isWall)
+                {
+                    Coords normal = (center.x > max.x) ? new Coords(1f, 0f, 0f) : new Coords(-1f, 0f, 0f);
+                    float sideX = (normal.x > 0) ? max.x + sphere.radius : min.x - sphere.radius;
+                    body.StopOnWall(normal, sideX, axis: 'x');
+                }
+                // --- Wall Z ---
+                else if (penZ <= penX && penZ <= penY && box.isWall)
+                {
+                    Coords normal = (center.z > max.z) ? new Coords(0f, 0f, 1f) : new Coords(0f, 0f, -1f);
+                    float boundaryZ = (normal.z > 0) ? max.z + sphere.radius : min.z - sphere.radius;
+                    body.StopOnWall(normal, boundaryZ, 'z');
+                }
+                else
+                {
+                    // Neutral AABB → trigger (ignore physics for now)
+                    // Debug.Log($"📦 Trigger AABB {box.name} overlapped ⚪ Sphere {sphere.name}");
+                }
             }
         }
     }
-
-    private static void HandlePointCollision(Collider a, Collider b)
+    
+    // Handles Player Collisions
+    private static void HandlePlayerCollision(CustomCollider player, CustomCollider other)
     {
-        if (a.colliderType == Collider.ColliderType.POINT)
+        Coords playerPos = player.GetBounds().Center;
+
+        float playerRadius = player.radius;
+
+        if (other.colliderType == CustomCollider.ColliderType.SPHERE)
         {
-            if (b.colliderType == Collider.ColliderType.SPHERE)
-                HandlePointToSphere(a, b);
-            else if (b.colliderType == Collider.ColliderType.AXIS_ALIGNED_BOUNDING_BOX)
-                HandlePointToAABB(a, b);
-        }
-        else if (b.colliderType == Collider.ColliderType.POINT)
-        {
-            if (a.colliderType == Collider.ColliderType.SPHERE)
-                HandlePointToSphere(b, a);
-            else if (a.colliderType == Collider.ColliderType.AXIS_ALIGNED_BOUNDING_BOX)
-                HandlePointToAABB(b, a);
+            Coords otherPos = other.GetBounds().Center;
+            float otherRadius = other.radius;
+            float distance = MathEngine.Distance(playerPos, otherPos);
+
+            if (distance < playerRadius + otherRadius)
+            {
+                PhysicsBody body = other.GetComponent<PhysicsBody>();
+                if (body != null)
+                {
+                    Coords direction = MathEngine.Normalize(otherPos - playerPos);
+                    body.ApplyImpulse(direction * 8f);
+                }
+            }
         }
     }
-
-    private static void HandlePointToSphere(Collider point, Collider sphere)
+    
+    // Handles Point - Sphere Collisions
+    private static void HandlePointToSphere(CustomCollider point, CustomCollider sphere)
     {
         Coords pointPos = point.GetBounds().Center;
         Coords sphereCenter = sphere.GetBounds().Center;
@@ -196,14 +259,79 @@ public class CollisionEngine : MonoBehaviour
             Debug.Log($"🟢 Point {point.name} is inside ⚪ Sphere {sphere.name}");
         }
     }
-
-    private static void HandlePointToAABB(Collider point, Collider box)
+    
+    // Handles Point - AABB Collisions
+    private static void HandlePointToAABB(CustomCollider point, CustomCollider box)
     {
         Coords pointPos = point.GetBounds().Center;
         if (box.GetBounds().Contains(pointPos))
         {
             Debug.Log($"🟢 Point {point.name} is inside 📦 AABB {box.name}");
         }
+    }
+    #endregion
+    
+    #region Helper Methods
+    // Calculates penetration depths along X, Y, Z axes between a point and an AABB.
+    private static (float penX, float penY, float penZ) GetPenetrationDepth(Coords pos, CustomBounds bounds)
+    {
+        Coords min = bounds.Min;
+        Coords max = bounds.Max;
+
+        float penX = Mathf.Min(Mathf.Abs(pos.x - min.x), Mathf.Abs(pos.x - max.x));
+        float penY = Mathf.Min(Mathf.Abs(pos.y - min.y), Mathf.Abs(pos.y - max.y));
+        float penZ = Mathf.Min(Mathf.Abs(pos.z - min.z), Mathf.Abs(pos.z - max.z));
+
+        return (penX, penY, penZ);
+    }
+    
+    // Clamps a proposed position for a moving collider so it cannot penetrate walls (AABBs).
+    public Coords ClampToBounds(CustomCollider moving, Coords proposedPos)
+    {
+        Coords corrected = proposedPos;
+
+        foreach (var other in colliders)
+        {
+            if (other == moving) continue;
+
+            // Only block against wall AABBs
+            if (other.colliderType == CustomCollider.ColliderType.AXIS_ALIGNED_BOUNDING_BOX && other.isWall)
+            {
+                Coords min = other.GetBounds().Min;
+                Coords max = other.GetBounds().Max;
+
+                // Find closest point on AABB to proposed center
+                float closestX = Mathf.Clamp(proposedPos.x, min.x, max.x);
+                float closestY = Mathf.Clamp(proposedPos.y, min.y, max.y);
+                float closestZ = Mathf.Clamp(proposedPos.z, min.z, max.z);
+                Coords closestPoint = new(closestX, closestY, closestZ);
+
+                float distance = MathEngine.Distance(proposedPos, closestPoint);
+
+                // If overlapping → correct along the shallowest axis
+                if (distance < moving.radius)
+                {
+                    var (penX, penY, penZ) = GetPenetrationDepth(proposedPos, other.GetBounds());
+
+                    if (penX <= penZ)
+                    {
+                        float boundaryX = (proposedPos.x > max.x)
+                            ? max.x + moving.radius
+                            : min.x - moving.radius;
+                        corrected = new Coords(boundaryX, proposedPos.y, proposedPos.z);
+                    }
+                    else
+                    {
+                        float boundaryZ = (proposedPos.z > max.z)
+                            ? max.z + moving.radius
+                            : min.z - moving.radius;
+                        corrected = new Coords(proposedPos.x, proposedPos.y, boundaryZ);
+                    }
+                }
+            }
+        }
+
+        return corrected;
     }
     #endregion
 }
