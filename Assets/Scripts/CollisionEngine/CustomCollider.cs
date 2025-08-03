@@ -79,7 +79,7 @@ public class CustomCollider : MonoBehaviour
     {
         center = new Coords(transform.position);
         
-        // PLAYER: apply hardcoded Y offset
+        // PLAYER: apply offsets
         if (colliderType == ColliderType.PLAYER)
             center += new Coords(playerOffsetX, playerOffsetY, 0f);
 

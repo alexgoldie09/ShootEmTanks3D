@@ -131,39 +131,19 @@ public class CollisionEngine : MonoBehaviour
         float radiusB = b.radius;
 
         float distance = MathEngine.Distance(posA, posB);
-        float minDistance = radiusA + radiusB;
-        
-        if (distance < minDistance)
-        {
-            // Normal pointing from B → A
-            Coords normal = MathEngine.Normalize(posA - posB);
+        float overlap = (radiusA + radiusB) - distance;
 
-            // Penetration depth
-            float penetration = minDistance - distance;
+        if (overlap > 0f)
+        {
+            Coords normal = MathEngine.Normalize(posB - posA);
+            if (distance == 0) normal = new Coords(1, 0, 0); // fallback
 
             PhysicsBody bodyA = a.GetComponent<PhysicsBody>();
             PhysicsBody bodyB = b.GetComponent<PhysicsBody>();
 
-            // Correct positions to separate spheres (half each if both dynamic)
-            if (bodyA != null && bodyB != null)
-            {
-                a.transform.position += (normal * (penetration * 0.5f)).ToVector3();
-                b.transform.position -= (normal * (penetration * 0.5f)).ToVector3();
-            }
-            else if (bodyA != null)
-            {
-                a.transform.position += (normal * penetration).ToVector3();
-            }
-            else if (bodyB != null)
-            {
-                b.transform.position -= (normal * penetration).ToVector3();
-            }
-
-            // Apply bounce velocities
-            if (bodyA != null)
-                bodyA.ReflectFromNormal(normal);
-            if (bodyB != null)
-                bodyB.ReflectFromNormal(-normal);
+            // Split correction
+            if (bodyA != null) bodyA.ResolveSphereCollision(-normal, overlap / 2f, bodyB);
+            if (bodyB != null) bodyB.ResolveSphereCollision(normal, overlap / 2f, bodyA);
         }
     }
     
@@ -182,9 +162,7 @@ public class CollisionEngine : MonoBehaviour
         float distance = MathEngine.Distance(center, closestPoint);
 
         if (distance < sphere.radius)
-        {
-            // Debug.Log($"📦 AABB ↔ ⚪ Sphere → {sphere.name} hit {box.name}");
-            
+        {   
             PhysicsBody body = sphere.GetComponent<PhysicsBody>();
             if (body != null)
             {

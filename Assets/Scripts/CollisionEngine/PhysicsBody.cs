@@ -3,7 +3,7 @@ using UnityEngine;
 public class PhysicsBody : MonoBehaviour
 {
     // Settings
-    public float bounciness = 0.5f;   // for later
+    public float bounciness = 0.5f;
     public float restitutionThreshold = 0.2f;
     public bool useGravity = true;
 
@@ -14,6 +14,7 @@ public class PhysicsBody : MonoBehaviour
 
     private const float GRAVITY = -9.81f;
 
+    #region Unity Lifecycle
     private void Start()
     {
         position = new Coords(transform.position);
@@ -42,25 +43,42 @@ public class PhysicsBody : MonoBehaviour
         // Sync Unity transform
         transform.position = position.ToVector3();
     }
+    #endregion
 
-    // For collisions later
-    public void ReflectFromNormal(Coords normal)
+    #region Collision Response Methods
+    public void ResolveSphereCollision(Coords normal, float penetration, PhysicsBody other = null)
     {
-        velocity = MathEngine.Reflect(velocity, normal) * bounciness;
-
-        // Stop if velocity is too small
-        if (MathEngine.Magnitude(velocity) < 0.01f)
+        // --- Position correction (basic) ---
+        if (penetration > 0f)
         {
-            velocity = Coords.Zero();
-            acceleration = Coords.Zero();
-            useGravity = false;
+            // Push this body out along the normal
+            position += normal * penetration;
+            transform.position = position.ToVector3();
+        }
+
+        // --- Velocity correction ---
+        float velAlongNormal = MathEngine.Dot(velocity, normal);
+
+        if (velAlongNormal < 0f) // moving into collision
+        {
+            if (bounciness > 0f)
+            {
+                // Reflect with restitution
+                velocity = MathEngine.Reflect(velocity, normal) * bounciness;
+            }
+            else
+            {
+                // Kill velocity into the surface, keep tangential
+                velocity -= normal * velAlongNormal;
+            }
         }
     }
-    
+
+
     public void ApplyImpulse(Coords impulse)
     {
         velocity += impulse;
-        useGravity = true;
+        // useGravity = true;
     }
 
     public void StopOnGround(Coords surfaceNormal, float groundHeight)
@@ -104,4 +122,5 @@ public class PhysicsBody : MonoBehaviour
 
         transform.position = position.ToVector3();
     }
+    #endregion
 }
