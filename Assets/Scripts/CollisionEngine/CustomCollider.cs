@@ -68,7 +68,7 @@ public class CustomCollider : MonoBehaviour
         UpdateBounds();
 
         // Optional: Clean-up check
-        if (transform.position.y < -100f)
+        if (transform.position.y < -10f)
             Destroy(gameObject);
     }
     #endregion

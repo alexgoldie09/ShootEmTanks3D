@@ -195,6 +195,16 @@ public static class MathEngine
     #endregion
     
     #region Quaternion Operations
+    public static CustomQuaternion Euler(float xDeg, float yDeg, float zDeg)
+    {
+        // Convert to quaternions for each axis
+        CustomQuaternion qx = new CustomQuaternion(new Coords(1, 0, 0), xDeg);
+        CustomQuaternion qy = new CustomQuaternion(new Coords(0, 1, 0), yDeg);
+        CustomQuaternion qz = new CustomQuaternion(new Coords(0, 0, 1), zDeg);
+
+        // Combine in Unity's order: Z * X * Y (by default Unity uses ZXY for Euler)
+        return qy * qx * qz;
+    }
     // Returns a normalized quaternion by dividing each component by the magnitude.
     public static CustomQuaternion Normalize(CustomQuaternion q)
     {
@@ -202,61 +212,67 @@ public static class MathEngine
         if (mag == 0f) return new CustomQuaternion(0, 0, 0, 1); // fallback to identity
         return new CustomQuaternion(q.x / mag, q.y / mag, q.z / mag, q.w / mag);
     }
+    
+    // Creates a quaternion that rotates from one direction vector to another.
+    // Equivalent to Unity's Quaternion.FromToRotation.
+    public static CustomQuaternion FromToRotation(Coords from, Coords to)
+    {
+        from = Normalize(from);
+        to = Normalize(to);
+
+        float dot = Dot(from, to);
+        dot = Mathf.Clamp(dot, -1f, 1f); // avoid precision errors
+
+        if (dot >= 1f)
+        {
+            // Vectors are the same → no rotation
+            return new CustomQuaternion(0, 0, 0, 1);
+        }
+        else if (dot <= -1f)
+        {
+            // Vectors are opposite - need a 180° rotation around any orthogonal axis
+            Coords orthogonal = Mathf.Abs(from.x) > Mathf.Abs(from.z)
+                ? new Coords(-from.y, from.x, 0)
+                : new Coords(0, -from.z, from.y);
+
+            orthogonal = Normalize(orthogonal);
+            return new CustomQuaternion(orthogonal, 180f);
+        }
+        else
+        {
+            // General case → axis = cross product, angle = acos(dot)
+            Coords axis = Cross(from, to);
+            float angle = Mathf.Acos(dot) * Mathf.Rad2Deg;
+            return new CustomQuaternion(Normalize(axis), angle);
+        }
+    }
+    
+    // Creates a quaternion that rotates a forward vector to look in the given direction,
+    // while keeping a provided up vector as close to vertical as possible.
+    public static CustomQuaternion LookRotation(Coords forward, Coords up)
+    {
+        forward = Normalize(forward);
+        up = Normalize(up);
+
+        // Build orthonormal basis
+        Coords right = Normalize(Cross(up, forward));
+        up = Cross(forward, right);
+
+        // Column-major (Unity-style basis)
+        float[] m = {
+            right.x,    up.x,    forward.x,   0,
+            right.y,    up.y,    forward.y,   0,
+            right.z,    up.z,    forward.z,   0,
+            0,          0,       0,           1
+        };
+
+        Matrix rotMat = new Matrix(4, 4, m);
+
+        return CustomQuaternion.FromMatrix(rotMat);
+    }
     #endregion
     
     #region Coordinate Transforms (Return Coords directly)
-    // Applies a translation to a position using a direction vector
-    public static Coords Translate(Coords position, Coords direction)
-    {
-        Matrix result = CreateTranslationMatrix(direction) * new Matrix(4, 1, position.AsFloats());
-        return result.AsCoords();
-    }
-    
-    // Scales a position relative to origin using provided scale factors
-    public static Coords Scale(Coords position, float sx, float sy, float sz)
-    {
-        Matrix result = CreateScaleMatrix(sx, sy, sz) * new Matrix(4, 1, position.AsFloats());
-        return result.AsCoords();
-    }
-    
-    // Applies a shear transform to a position
-    public static Coords Shear(Coords position, float shearX, float shearY)
-    {
-        Matrix result = CreateShearMatrix(shearX, shearY) * new Matrix(4, 1, position.AsFloats());
-        return result.AsCoords();
-    }
-    
-    // Reflects a position across the X-axis
-    public static Coords ReflectX(Coords position)
-    {
-        Matrix result = CreateReflectXMatrix() * new Matrix(4, 1, position.AsFloats());
-        return result.AsCoords();
-    }
-    
-    // Applies rotation to a position using Euler angles and rotation order X->Y->Z
-    public static Coords Rotate(Coords position, float angleX, bool cwX,
-        float angleY, bool cwY,
-        float angleZ, bool cwZ)
-    {
-        Matrix result = CreateRotationMatrixXYZ(angleX, cwX, angleY, cwY, angleZ, cwZ) *
-                        new Matrix(4, 1, position.AsFloats());
-
-        return result.AsCoords();
-    }
-    
-    // Rotates a position using a quaternion (q * v * q⁻¹)
-    public static Coords QRotate(Coords position, CustomQuaternion rotation)
-    {
-        return rotation * position;
-    }
-
-    // Overload for convenience — builds quaternion from axis + angle
-    public static Coords QRotate(Coords position, Coords axis, float angleDegrees)
-    {
-        CustomQuaternion q = new CustomQuaternion(axis, angleDegrees);
-        return q * position;
-    }
-    
     // Extracts position (last column of the 4x4 matrix) and returns as Coords
     public static Coords ExtractPosition(Matrix matrix)
     {
@@ -269,26 +285,27 @@ public static class MathEngine
             matrix.GetValue(2, 3)  // Z position
         );
     }
-    #endregion
-
-    #region Rotation Axis & Angle Extraction
-    // Extracts the angle (in radians) from a rotation matrix
-    public static float GetRotationAngle(Matrix rotation)
-    {
-        return Mathf.Acos(0.5f * (
-            rotation.GetValue(0, 0) +
-            rotation.GetValue(1, 1) +
-            rotation.GetValue(2, 2) +
-            rotation.GetValue(3, 3) - 2));
-    }
     
-    // Extracts the rotation axis vector from a rotation matrix and known angle
-    public static Coords GetRotationAxis(Matrix rotation, float angle)
+    // Extracts scale from a 4x4 transformation matrix.
+    public static Coords ExtractScale(Matrix m)
     {
-        float vx = (rotation.GetValue(2, 1) - rotation.GetValue(1, 2)) / (2 * Mathf.Sin(angle));
-        float vy = (rotation.GetValue(0, 2) - rotation.GetValue(2, 0)) / (2 * Mathf.Sin(angle));
-        float vz = (rotation.GetValue(1, 0) - rotation.GetValue(0, 1)) / (2 * Mathf.Sin(angle));
-        return new Coords(vx, vy, vz, 0);
+        if (m.Rows != 4 || m.Cols != 4)
+            throw new InvalidOperationException("Matrix must be 4x4 to extract scale.");
+        
+        // Each axis vector length = scale
+        float scaleX = Mathf.Sqrt(m.GetValue(0,0) * m.GetValue(0,0) +
+                                  m.GetValue(1,0) * m.GetValue(1,0) +
+                                  m.GetValue(2,0) * m.GetValue(2,0));
+
+        float scaleY = Mathf.Sqrt(m.GetValue(0,1) * m.GetValue(0,1) +
+                                  m.GetValue(1,1) * m.GetValue(1,1) +
+                                  m.GetValue(2,1) * m.GetValue(2,1));
+
+        float scaleZ = Mathf.Sqrt(m.GetValue(0,2) * m.GetValue(0,2) +
+                                  m.GetValue(1,2) * m.GetValue(1,2) +
+                                  m.GetValue(2,2) * m.GetValue(2,2));
+
+        return new Coords(scaleX, scaleY, scaleZ);
     }
     #endregion
 }

@@ -21,7 +21,12 @@ public class TankController : MonoBehaviour
     [Header("Movement Settings")]
     public float moveSpeed = 5f;       // Units per second
     public float rotateSpeed = 45f;    // Degrees per second
-
+    
+    [Header("Weapon Settings")]
+    public GameObject shellPrefab;     // Prefab with CustomCollider + PhysicsBody
+    public float fireForce = 20f;      // Initial velocity magnitude
+    public Transform firePoint;        // Empty GameObject at tank barrel
+    
     // Internal state
     private Coords position = new Coords(0, 0, 0);  // Tank's world position
     private float yawDegrees = 0f;                  // Rotation around Y-axis
@@ -38,6 +43,7 @@ public class TankController : MonoBehaviour
         float deltaTime = Time.deltaTime;
 
         HandleInput(deltaTime);
+        HandleShooting();
         ApplyTransform();
     }
     #endregion
@@ -63,23 +69,21 @@ public class TankController : MonoBehaviour
             yawMatrix.GetValue(2, 2)
         );
 
-        // --- NEW: movement proposal ---
+        // Movement proposal
         Coords proposedMove = forward * (moveSpeed * moveInput * deltaTime);
         Coords proposedPos  = position + proposedMove;
 
-        // --- Ask CollisionEngine to clamp against walls ---
+        // Ask CollisionEngine to clamp against walls
         CustomCollider col = GetComponent<CustomCollider>();
         if (col != null && CollisionEngine.Instance != null)
         {
             proposedPos = CollisionEngine.Instance.ClampToBounds(col, proposedPos);
         }
 
-        // --- Accept corrected position ---
+        // Accept corrected position
         position = proposedPos;
     }
-    #endregion
-
-    #region Transform Application
+    
     // Applies the final transform matrix and rotation to the Unity object.
     private void ApplyTransform()
     {
@@ -95,6 +99,38 @@ public class TankController : MonoBehaviour
         // Create and apply quaternion rotation to Unity transform
         CustomQuaternion rot = new CustomQuaternion(new Coords(0, 1, 0), yawDegrees);
         transform.rotation = rot.ToUnityQuaternion();
+    }
+    #endregion
+    
+    #region Shooting
+    private void HandleShooting()
+    {
+        if (Input.GetKeyDown(KeyCode.Space) && shellPrefab != null)
+        {
+            // Compute spawn position
+            Coords spawnPos = firePoint != null ? new Coords(firePoint.position) : position;
+
+            // Compute forward direction (barrel direction)
+            Matrix yawMatrix = MathEngine.CreateRotationMatrixFromQuaternion(new Coords(0, 1, 0), yawDegrees);
+            Coords forward = new Coords(
+                yawMatrix.GetValue(0, 2),
+                yawMatrix.GetValue(1, 2),
+                yawMatrix.GetValue(2, 2)
+            );
+
+            // Compute rotation from forward vector
+            CustomQuaternion shellRot = MathEngine.FromToRotation(new Coords(0, 0, 1), forward);
+
+            // Instantiate shell with custom quaternion
+            GameObject shellObj = Instantiate(shellPrefab, spawnPos.ToVector3(), shellRot.ToUnityQuaternion());
+
+            // Apply velocity
+            PhysicsBody body = shellObj.GetComponent<PhysicsBody>();
+            if (body != null)
+            {
+                body.SetVelocity(forward * fireForce);
+            }
+        }
     }
     #endregion
 }

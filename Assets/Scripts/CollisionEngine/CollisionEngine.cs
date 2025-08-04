@@ -55,6 +55,9 @@ public class CollisionEngine : MonoBehaviour
             colliders.Remove(col);
     }
     
+    // Get the list of colliders.
+    public List<CustomCollider> GetColliders() => colliders;
+    
     // Runs pairwise collision checks between all registered colliders.
     private void RunCollisionChecks()
     {
@@ -97,6 +100,17 @@ public class CollisionEngine : MonoBehaviour
             return;
         }
         
+        // --- AABB vs AABB ---
+        if (typeA == CustomCollider.ColliderType.AXIS_ALIGNED_BOUNDING_BOX &&
+            typeB == CustomCollider.ColliderType.AXIS_ALIGNED_BOUNDING_BOX)
+        {
+            var boxA = a;
+            var boxB = b;
+
+            HandleAABBAABBCollision(boxA, boxB);
+            return;
+        }
+        
         // --- Player vs (Sphere, AABB, or Point) ---
         if (typeA == CustomCollider.ColliderType.PLAYER || typeB == CustomCollider.ColliderType.PLAYER)
         {
@@ -122,6 +136,32 @@ public class CollisionEngine : MonoBehaviour
     #endregion
 
     #region Type-Based Handlers
+    // Handle AABB - AABB Collisions 
+    private static void HandleAABBAABBCollision(CustomCollider a, CustomCollider b)
+    {
+        // Only consider one as ground, the other as dynamic crate
+        CustomCollider ground = (a.isGround) ? a : (b.isGround ? b : null);
+        CustomCollider crate  = (a.isGround) ? b : (b.isGround ? a : null);
+
+        if (ground == null || crate == null)
+            return; // Not a ground–crate pair
+
+        // Check overlap
+        if (!ground.GetBounds().Intersects(crate.GetBounds()))
+            return;
+
+        PhysicsBody body = crate.GetComponent<PhysicsBody>();
+        if (body == null)
+            return;
+
+        // Ground top surface
+        float groundTop = ground.GetBounds().Max.y;
+        float halfHeight = crate.GetBounds().Extents.y;
+
+        // Push crate up & settle
+        body.StopOnGround(new Coords(0f, 1f, 0f), groundTop, halfHeight);
+    }
+
     // Handles Sphere - Sphere Collisions
     private static void HandleSphereSphereCollision(CustomCollider a, CustomCollider b)
     {
@@ -169,26 +209,26 @@ public class CollisionEngine : MonoBehaviour
                 // Find penetration depth
                 var (penX, penY, penZ) = GetPenetrationDepth(center, box.GetBounds());
 
-                // --- Ground ---
+                // Ground
                 if (penY <= penX && penY <= penZ && box.isGround)
                 {
                     Coords normal = (center.y > max.y) ? new Coords(0f, 1f, 0f) : new Coords(0f, -1f, 0f);
-                    float groundHeight = (normal.y > 0) ? max.y + sphere.radius : min.y - sphere.radius;
-                    body.StopOnGround(normal, groundHeight);
+                    float groundHeight = (normal.y > 0) ? max.y : min.y;
+                    body.StopOnGround(normal, groundHeight, sphere.radius); // unified version
                 }
-                // --- Wall X ---
+                // Wall X
                 else if (penX <= penY && penX <= penZ && box.isWall)
                 {
                     Coords normal = (center.x > max.x) ? new Coords(1f, 0f, 0f) : new Coords(-1f, 0f, 0f);
-                    float sideX = (normal.x > 0) ? max.x + sphere.radius : min.x - sphere.radius;
-                    body.StopOnWall(normal, sideX, axis: 'x');
+                    float sideX = (normal.x > 0) ? max.x : min.x;
+                    body.StopOnWall(normal, sideX, 'x', sphere.radius);
                 }
-                // --- Wall Z ---
+                // Wall Z
                 else if (penZ <= penX && penZ <= penY && box.isWall)
                 {
                     Coords normal = (center.z > max.z) ? new Coords(0f, 0f, 1f) : new Coords(0f, 0f, -1f);
-                    float boundaryZ = (normal.z > 0) ? max.z + sphere.radius : min.z - sphere.radius;
-                    body.StopOnWall(normal, boundaryZ, 'z');
+                    float boundaryZ = (normal.z > 0) ? max.z : min.z;
+                    body.StopOnWall(normal, boundaryZ, 'z', sphere.radius);
                 }
                 else
                 {
@@ -203,9 +243,9 @@ public class CollisionEngine : MonoBehaviour
     private static void HandlePlayerCollision(CustomCollider player, CustomCollider other)
     {
         Coords playerPos = player.GetBounds().Center;
-
         float playerRadius = player.radius;
 
+        // --- Player vs Sphere ---
         if (other.colliderType == CustomCollider.ColliderType.SPHERE)
         {
             Coords otherPos = other.GetBounds().Center;
@@ -222,6 +262,29 @@ public class CollisionEngine : MonoBehaviour
                 }
             }
         }
+
+        // --- Player vs AABB (but not ground/wall) ---
+        else if (other.colliderType == CustomCollider.ColliderType.AXIS_ALIGNED_BOUNDING_BOX &&
+                 !other.isGround && !other.isWall)
+        {
+            // Check overlap: player sphere vs box
+            Coords closestPoint = new Coords(
+                Mathf.Clamp(playerPos.x, other.GetBounds().Min.x, other.GetBounds().Max.x),
+                Mathf.Clamp(playerPos.y, other.GetBounds().Min.y, other.GetBounds().Max.y),
+                Mathf.Clamp(playerPos.z, other.GetBounds().Min.z, other.GetBounds().Max.z)
+            );
+
+            float distance = MathEngine.Distance(playerPos, closestPoint);
+            if (distance < playerRadius)
+            {
+                PhysicsBody body = other.GetComponent<PhysicsBody>();
+                if (body != null)
+                {
+                    Coords direction = MathEngine.Normalize(other.GetBounds().Center - playerPos);
+                    body.ApplyImpulse(direction * 8f);
+                }
+            }
+        }
     }
     
     // Handles Point - Sphere Collisions
@@ -234,7 +297,9 @@ public class CollisionEngine : MonoBehaviour
         float distance = MathEngine.Distance(pointPos, sphereCenter);
         if (distance <= radius)
         {
-            Debug.Log($"🟢 Point {point.name} is inside ⚪ Sphere {sphere.name}");
+            // Destroy both objects
+            Destroy(point.gameObject);
+            Destroy(sphere.gameObject);
         }
     }
     
@@ -244,7 +309,19 @@ public class CollisionEngine : MonoBehaviour
         Coords pointPos = point.GetBounds().Center;
         if (box.GetBounds().Contains(pointPos))
         {
-            Debug.Log($"🟢 Point {point.name} is inside 📦 AABB {box.name}");
+            // Add impulse to AABB if it has a PhysicsBody
+            PhysicsBody body = box.GetComponent<PhysicsBody>();
+            PhysicsBody pointBody = point.GetComponent<PhysicsBody>();
+            if (body != null && pointBody != null)
+            {
+                // Compute a simple impulse direction from point to box center
+                Coords direction = MathEngine.Normalize(box.GetBounds().Center - pointPos);
+                
+                body.ApplyImpulse(direction * pointBody.projectileForce);
+            }
+            
+            // Destroy point
+            Destroy(point.gameObject);
         }
     }
     #endregion
@@ -272,39 +349,30 @@ public class CollisionEngine : MonoBehaviour
         {
             if (other == moving) continue;
 
-            // Only block against wall AABBs
             if (other.colliderType == CustomCollider.ColliderType.AXIS_ALIGNED_BOUNDING_BOX && other.isWall)
             {
                 Coords min = other.GetBounds().Min;
                 Coords max = other.GetBounds().Max;
 
-                // Find closest point on AABB to proposed center
+                // Closest point on box to sphere center
                 float closestX = Mathf.Clamp(proposedPos.x, min.x, max.x);
                 float closestY = Mathf.Clamp(proposedPos.y, min.y, max.y);
                 float closestZ = Mathf.Clamp(proposedPos.z, min.z, max.z);
-                Coords closestPoint = new(closestX, closestY, closestZ);
+                Coords closestPoint = new Coords(closestX, closestY, closestZ);
 
+                // Distance to closest point
                 float distance = MathEngine.Distance(proposedPos, closestPoint);
 
-                // If overlapping → correct along the shallowest axis
                 if (distance < moving.radius)
                 {
-                    var (penX, penY, penZ) = GetPenetrationDepth(proposedPos, other.GetBounds());
+                    // Penetration depth
+                    float penetration = moving.radius - distance;
 
-                    if (penX <= penZ)
-                    {
-                        float boundaryX = (proposedPos.x > max.x)
-                            ? max.x + moving.radius
-                            : min.x - moving.radius;
-                        corrected = new Coords(boundaryX, proposedPos.y, proposedPos.z);
-                    }
-                    else
-                    {
-                        float boundaryZ = (proposedPos.z > max.z)
-                            ? max.z + moving.radius
-                            : min.z - moving.radius;
-                        corrected = new Coords(proposedPos.x, proposedPos.y, boundaryZ);
-                    }
+                    // Correction direction is from box → sphere
+                    Coords normal = MathEngine.Normalize(proposedPos - closestPoint);
+
+                    // Apply correction outward
+                    corrected += normal * penetration;
                 }
             }
         }

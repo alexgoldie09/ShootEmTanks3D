@@ -69,6 +69,47 @@ public readonly struct CustomQuaternion
 
         return new Matrix(4, 4, m);
     }
+    // Converts a 4x4 matrix to a quaternion (for use in MathEngine)
+    public static CustomQuaternion FromMatrix(Matrix m)
+    {
+        float trace = m.GetValue(0,0) + m.GetValue(1,1) + m.GetValue(2,2);
+        float w, x, y, z;
+
+        if (trace > 0f)
+        {
+            float s = Mathf.Sqrt(trace + 1f) * 2f;
+            w = 0.25f * s;
+            x = (m.GetValue(2,1) - m.GetValue(1,2)) / s;
+            y = (m.GetValue(0,2) - m.GetValue(2,0)) / s;
+            z = (m.GetValue(1,0) - m.GetValue(0,1)) / s;
+        }
+        else if (m.GetValue(0,0) > m.GetValue(1,1) && m.GetValue(0,0) > m.GetValue(2,2))
+        {
+            float s = Mathf.Sqrt(1f + m.GetValue(0,0) - m.GetValue(1,1) - m.GetValue(2,2)) * 2f;
+            w = (m.GetValue(2,1) - m.GetValue(1,2)) / s;
+            x = 0.25f * s;
+            y = (m.GetValue(0,1) + m.GetValue(1,0)) / s;
+            z = (m.GetValue(0,2) + m.GetValue(2,0)) / s;
+        }
+        else if (m.GetValue(1,1) > m.GetValue(2,2))
+        {
+            float s = Mathf.Sqrt(1f + m.GetValue(1,1) - m.GetValue(0,0) - m.GetValue(2,2)) * 2f;
+            w = (m.GetValue(0,2) - m.GetValue(2,0)) / s;
+            x = (m.GetValue(0,1) + m.GetValue(1,0)) / s;
+            y = 0.25f * s;
+            z = (m.GetValue(1,2) + m.GetValue(2,1)) / s;
+        }
+        else
+        {
+            float s = Mathf.Sqrt(1f + m.GetValue(2,2) - m.GetValue(0,0) - m.GetValue(1,1)) * 2f;
+            w = (m.GetValue(1,0) - m.GetValue(0,1)) / s;
+            x = (m.GetValue(0,2) + m.GetValue(2,0)) / s;
+            y = (m.GetValue(1,2) + m.GetValue(2,1)) / s;
+            z = 0.25f * s;
+        }
+
+        return new CustomQuaternion(x, y, z, w);
+    }
     // Returns a string of the Quaternion
     public override string ToString() => $"({x}, {y}, {z}, {w})";
     // Converts this custom quaternion to UnityEngine.Quaternion
