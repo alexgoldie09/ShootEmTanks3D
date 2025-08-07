@@ -9,8 +9,7 @@ public class TrajectoryVisualiser : MonoBehaviour
     public float stepTime = 0.05f;       // Simulation step size (smaller = smoother)
     public int maxSteps = 100;           // Max steps in trajectory
 
-    [Header("Physics")]
-    public float fireForce = 15f;        // Launch speed, should match tank's fireForce
+    private float playerFireForce = 15f; // Launch speed, should match tank's fireForce
     private const float GRAVITY = -9.81f;
     
     [Header("Impact Marker")]
@@ -18,6 +17,7 @@ public class TrajectoryVisualiser : MonoBehaviour
     private GameObject activeMarker;
 
     private LineRenderer lineRenderer;
+    private TankController playerController;
 
     private void Awake()
     {
@@ -36,6 +36,12 @@ public class TrajectoryVisualiser : MonoBehaviour
             activeMarker = Instantiate(impactMarkerPrefab, Vector3.zero, Quaternion.identity);
             activeMarker.SetActive(false);
         }
+
+        // Get reference to player
+        if (GameObject.FindGameObjectWithTag("Player") != null)
+        {
+            playerController = GameObject.FindGameObjectWithTag("Player").GetComponent<TankController>();
+        }
     }
 
     private void Update()
@@ -49,8 +55,14 @@ public class TrajectoryVisualiser : MonoBehaviour
 
         List<Vector3> points = new List<Vector3>();
 
+        // Set player fire force
+        if (playerController != null)
+        {
+            playerFireForce = playerController.fireForce;
+        }
+
         Coords pos = new Coords(firePoint.position);
-        Coords vel = new Coords(firePoint.forward) * fireForce;
+        Coords vel = new Coords(firePoint.forward) * playerFireForce;
         Coords acc = new Coords(0f, GRAVITY, 0f);
 
         for (int i = 0; i < maxSteps; i++)

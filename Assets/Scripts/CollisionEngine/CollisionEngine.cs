@@ -15,6 +15,7 @@
 */
 
 using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 
 public class CollisionEngine : MonoBehaviour
@@ -69,8 +70,77 @@ public class CollisionEngine : MonoBehaviour
             }
         }
     }
+
+    // Performs a raycast against all colliders in the scene.
+    public bool Raycast(Coords origin, Coords direction, out CustomCollider hit, float maxDistance = Mathf.Infinity, CustomCollider.ColliderType? filter = null, CustomCollider ignore = null)
+    {
+        // Output hit collider (null by default)
+        hit = null;
+
+        // Normalize the direction to ensure consistent ray length
+        direction = MathEngine.Normalize(direction);
+
+        // Create a ray struct (custom class) with origin and direction
+        Ray ray = new Ray(origin, direction);
+
+        // Track the closest collision hit within range
+        float closestDist = maxDistance;
+        CustomCollider closestHit = null;
+
+        // Check against all registered colliders
+        foreach (var col in colliders)
+        {
+            // Skip null, point, filtered-out, or ignored colliders
+            if (col == null || col.colliderType == CustomCollider.ColliderType.POINT)
+                continue;
+
+            if (filter.HasValue && col.colliderType != filter.Value)
+                continue;
+
+            if (ignore != null && col == ignore)
+                continue;
+
+            float hitDist = -1f; // Distance to hit (set inside intersection test)
+
+            switch (col.colliderType)
+            {
+                case CustomCollider.ColliderType.SPHERE:
+                    // If ray intersects a sphere and it's the closest so far, store it
+                    if (RayIntersectsSphere(ray, col, out hitDist) && hitDist < closestDist)
+                    {
+                        closestDist = hitDist;
+                        closestHit = col;
+                    }
+                    break;
+
+                case CustomCollider.ColliderType.PLAYER:
+                    // If ray intersects a sphere and it's the closest so far, store it
+                    if (RayIntersectsSphere(ray, col, out hitDist) && hitDist < closestDist)
+                    {
+                        closestDist = hitDist;
+                        closestHit = col;
+                    }
+                    break;
+
+                case CustomCollider.ColliderType.AXIS_ALIGNED_BOUNDING_BOX:
+                    // If ray intersects AABB and it's the closest so far, store it
+                    if (RayIntersectsAABB(ray, col, out hitDist) && hitDist < closestDist)
+                    {
+                        closestDist = hitDist;
+                        closestHit = col;
+                    }
+                    break;
+            }
+        }
+
+        // Set final hit if any valid collider was intersected
+        hit = closestHit;
+
+        // Return true if something was hit
+        return hit != null;
+    }
     #endregion
-    
+
     #region Dispatcher
     // Dispatches shape-based collision logic depending on collider types.
     private static void HandleCollision(CustomCollider a, CustomCollider b)
@@ -378,6 +448,92 @@ public class CollisionEngine : MonoBehaviour
         }
 
         return corrected;
+    }
+
+    // Returns true if the ray intersects a sphere.
+    private bool RayIntersectsSphere(Ray ray, CustomCollider sphere, out float t)
+    {
+        // Sphere center and radius
+        Coords center = sphere.GetBounds().Center;
+        float radius = sphere.radius;
+
+        // Vector from ray origin to sphere center
+        Coords oc = ray.origin - center;
+
+        // Quadratic coefficients
+        float a = MathEngine.Dot(ray.direction, ray.direction);
+        float b = 2.0f * MathEngine.Dot(oc, ray.direction);
+        float c = MathEngine.Dot(oc, oc) - radius * radius;
+
+        // Discriminant of the quadratic
+        float discriminant = b * b - 4 * a * c;
+
+        // No intersection if discriminant is negative
+        if (discriminant < 0)
+        {
+            t = -1f;
+            return false;
+        }
+
+        // Solve for t (distance)
+        float sqrtDisc = Mathf.Sqrt(discriminant);
+        float t0 = (-b - sqrtDisc) / (2f * a);
+        float t1 = (-b + sqrtDisc) / (2f * a);
+
+        // Return the nearest positive root
+        t = (t0 >= 0) ? t0 : t1;
+        return t >= 0 && t <= Mathf.Infinity;
+    }
+
+    // Returns true if the ray intersects an axis-aligned bounding box (AABB).
+    private bool RayIntersectsAABB(Ray ray, CustomCollider box, out float t)
+    {
+        Coords min = box.GetBounds().Min;
+        Coords max = box.GetBounds().Max;
+        t = -1f;
+
+        // X slab
+        float tmin = (min.x - ray.origin.x) / ray.direction.x;
+        float tmax = (max.x - ray.origin.x) / ray.direction.x;
+        if (tmin > tmax) Swap(ref tmin, ref tmax);
+
+        // Y slab
+        float tymin = (min.y - ray.origin.y) / ray.direction.y;
+        float tymax = (max.y - ray.origin.y) / ray.direction.y;
+        if (tymin > tymax) Swap(ref tymin, ref tymax);
+
+        // Early exit if slabs do not overlap
+        if ((tmin > tymax) || (tymin > tmax))
+            return false;
+
+        // Update tmin/tmax to account for Y overlap
+        if (tymin > tmin) tmin = tymin;
+        if (tymax < tmax) tmax = tymax;
+
+        // Z slab
+        float tzmin = (min.z - ray.origin.z) / ray.direction.z;
+        float tzmax = (max.z - ray.origin.z) / ray.direction.z;
+        if (tzmin > tzmax) Swap(ref tzmin, ref tzmax);
+
+        // Final overlap check
+        if ((tmin > tzmax) || (tzmin > tmax))
+            return false;
+
+        // Final tmin/tmax update for Z
+        if (tzmin > tmin) tmin = tzmin;
+        if (tzmax < tmax) tmax = tzmax;
+
+        // Output the closest entry distance
+        t = tmin;
+        return t >= 0;
+    }
+
+    // Utility method to swap two float values (used in slab axis checks)
+    private void Swap(ref float a, ref float b)
+    {
+        float temp = a;
+        a = b;
+        b = temp;
     }
     #endregion
 }

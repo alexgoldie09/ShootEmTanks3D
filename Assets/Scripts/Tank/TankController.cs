@@ -12,7 +12,7 @@
  * - Reads user input (WASD) for movement and turning.
  * - Uses custom matrix math to compute and apply position/rotation.
  * - Applies final world transform using Coords and CustomQuaternion.
- * - Clean separation of movement input and transform application.
+ * - Adjustable fire force using mouse Y input (with clamping).
  */
 
 using UnityEngine;
@@ -25,6 +25,9 @@ public class TankController : MonoBehaviour
     [Header("Weapon Settings")]
     public GameObject shellPrefab;     // Prefab with CustomCollider + PhysicsBody
     public float fireForce = 20f;      // Initial velocity magnitude
+    public float minForce = 10f;       // Minimum amount of fire force
+    public float maxForce = 50f;       // Maximum amount of fire force
+    public float forceAdjustSpeed = 10f; // Speed of how quickly it adjusts
     public Transform firePoint;        // Empty GameObject at tank barrel
     
     // Internal state
@@ -43,6 +46,7 @@ public class TankController : MonoBehaviour
         float deltaTime = Time.deltaTime;
 
         HandleInput(deltaTime);
+        HandleFireForceAdjustment(deltaTime);
         HandleShooting();
         ApplyTransform();
     }
@@ -101,8 +105,20 @@ public class TankController : MonoBehaviour
         transform.rotation = rot.ToUnityQuaternion();
     }
     #endregion
-    
+
     #region Shooting
+    // Adjusts fireForce based on mouse scroll movement
+    private void HandleFireForceAdjustment(float deltaTime)
+    {
+        // Mouse scroll wheel input (positive = scroll up, negative = scroll down)
+        float scroll = Input.GetAxis("Mouse ScrollWheel");
+
+        if (Mathf.Abs(scroll) > 0f)
+        {
+            fireForce += scroll * forceAdjustSpeed;
+            fireForce = Mathf.Clamp(fireForce, minForce, maxForce);
+        }
+    }
     private void HandleShooting()
     {
         if (Input.GetKeyDown(KeyCode.Space) && shellPrefab != null)
