@@ -235,8 +235,8 @@ public class CollisionEngine : MonoBehaviour
             CustomCollider other = (trigger == a) ? b : a;
             if (!other.isGround && !other.isWall && !other.isTrigger) // Must be a crate
             {
-                Debug.Log($"Hit {other.gameObject.name}");
-                GameObject.Destroy(other.gameObject);  // Destroy the crate
+                GameManager.Instance.AddScore(1);
+                Destroy(other.gameObject);  // Destroy the crate
             }
             return;
         }
@@ -405,6 +405,7 @@ public class CollisionEngine : MonoBehaviour
                     body.ApplyImpulse(direction * 8f);
                 }
                 player.gameObject.SetActive(false);
+                GameManager.Instance.TriggerGameOver();
             }
         }
 
@@ -444,7 +445,10 @@ public class CollisionEngine : MonoBehaviour
         {
             // Destroy both objects
             Destroy(point.gameObject);
-            Destroy(sphere.gameObject);
+            if (sphere.GetComponent<Enemy>() != null)
+            {
+                sphere.GetComponent<Enemy>().TakeDamage(1);
+            }
         }
     }
     

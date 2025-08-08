@@ -34,6 +34,7 @@ public class TrajectoryVisualiser : MonoBehaviour
         if (impactMarkerPrefab != null)
         {
             activeMarker = Instantiate(impactMarkerPrefab, Vector3.zero, Quaternion.identity);
+            activeMarker.transform.parent = transform;
             activeMarker.SetActive(false);
         }
 
