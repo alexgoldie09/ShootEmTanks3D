@@ -36,6 +36,7 @@ public class CustomCollider : MonoBehaviour
     [Header("AABB Settings")]
     public bool isGround = false;  // If true, acts like floor.
     public bool isWall = false;    // If true, acts like wall.
+    public bool isTrigger = false; // If true, acts like a trigger.
     
     [Header("Player Settings")]
     [Tooltip("Horizontal offset applied to the player collider center.")]
@@ -136,6 +137,10 @@ public class CustomCollider : MonoBehaviour
                 else if (isWall)
                 {
                     Gizmos.color = Color.red;
+                }
+                else if(isTrigger)
+                {
+                    Gizmos.color= Color.yellow;
                 }
                 else
                 {

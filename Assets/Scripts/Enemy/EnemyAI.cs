@@ -156,7 +156,6 @@ public class EnemyAI : MonoBehaviour
                 // No hit at all
                 if (currentState == AIState.Chase)
                 {
-                    Debug.Log("[AI Debug] Ray missed everything. Returning to PATROL");
                     currentState = AIState.Patrol;
                 }
             }

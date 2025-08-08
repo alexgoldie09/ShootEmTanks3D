@@ -114,7 +114,7 @@ public class CollisionEngine : MonoBehaviour
                     break;
 
                 case CustomCollider.ColliderType.PLAYER:
-                    // If ray intersects a sphere and it's the closest so far, store it
+                    // If ray intersects a player (sphere collider) and it's the closest so far, store it
                     if (RayIntersectsSphere(ray, col, out hitDist) && hitDist < closestDist)
                     {
                         closestDist = hitDist;
@@ -209,27 +209,101 @@ public class CollisionEngine : MonoBehaviour
     // Handle AABB - AABB Collisions 
     private static void HandleAABBAABBCollision(CustomCollider a, CustomCollider b)
     {
-        // Only consider one as ground, the other as dynamic crate
-        CustomCollider ground = (a.isGround) ? a : (b.isGround ? b : null);
-        CustomCollider crate  = (a.isGround) ? b : (b.isGround ? a : null);
-
-        if (ground == null || crate == null)
-            return; // Not a ground–crate pair
-
-        // Check overlap
-        if (!ground.GetBounds().Intersects(crate.GetBounds()))
+        // Skip if not overlapping
+        if (!a.GetBounds().Intersects(b.GetBounds()))
             return;
 
-        PhysicsBody body = crate.GetComponent<PhysicsBody>();
-        if (body == null)
+        // Determine roles
+        CustomCollider ground = null;
+        CustomCollider wall = null;
+        CustomCollider trigger = null;
+        CustomCollider crateA = (!a.isGround && !a.isWall && !a.isTrigger) ? a : null;
+        CustomCollider crateB = (!b.isGround && !b.isWall && !b.isTrigger) ? b : null;
+
+        if (a.isGround) ground = a;
+        if (b.isGround) ground = b;
+
+        if (a.isWall) wall = a;
+        if (b.isWall) wall = b;
+
+        if (a.isTrigger) trigger = a;
+        if (b.isTrigger) trigger = b;
+
+        // If either collider is a trigger, destroy the other crate (score later)
+        if (trigger != null)
+        {
+            CustomCollider other = (trigger == a) ? b : a;
+            if (!other.isGround && !other.isWall && !other.isTrigger) // Must be a crate
+            {
+                Debug.Log($"Hit {other.gameObject.name}");
+                GameObject.Destroy(other.gameObject);  // Destroy the crate
+            }
             return;
+        }
 
-        // Ground top surface
-        float groundTop = ground.GetBounds().Max.y;
-        float halfHeight = crate.GetBounds().Extents.y;
+        // Ground vs Crate
+        if (ground != null && (crateA != null || crateB != null))
+        {
+            CustomCollider crate = (ground == a) ? b : a;
+            PhysicsBody body = crate.GetComponent<PhysicsBody>();
+            if (body == null) return;
 
-        // Push crate up & settle
-        body.StopOnGround(new Coords(0f, 1f, 0f), groundTop, halfHeight);
+            float groundTop = ground.GetBounds().Max.y;
+            float halfHeight = crate.GetBounds().Extents.y;
+
+            body.StopOnGround(new Coords(0f, 1f, 0f), groundTop, halfHeight);
+            return;
+        }
+
+        // Wall vs Crate
+        if (wall != null && (crateA != null || crateB != null))
+        {
+            CustomCollider crate = (wall == a) ? b : a;
+            PhysicsBody body = crate.GetComponent<PhysicsBody>();
+            if (body == null) return;
+
+            CustomBounds wallBounds = wall.GetBounds();
+            CustomBounds crateBounds = crate.GetBounds();
+            Coords crateCenter = crateBounds.Center;
+
+            var (penX, penY, penZ) = GetPenetrationDepth(crateCenter, wallBounds);
+
+            // Decide which axis is the main penetration
+            if (penX < penZ)
+            {
+                // X-axis wall
+                float wallEdge = (crateCenter.x < wallBounds.Center.x) ? wallBounds.Min.x : wallBounds.Max.x;
+                Coords normal = (crateCenter.x < wallBounds.Center.x) ? new Coords(-1f, 0f, 0f) : new Coords(1f, 0f, 0f);
+                body.StopOnWall(normal, wallEdge, 'x', crateBounds.Extents.x);
+            }
+            else
+            {
+                // Z-axis wall
+                float wallEdge = (crateCenter.z < wallBounds.Center.z) ? wallBounds.Min.z : wallBounds.Max.z;
+                Coords normal = (crateCenter.z < wallBounds.Center.z) ? new Coords(0f, 0f, -1f) : new Coords(0f, 0f, 1f);
+                body.StopOnWall(normal, wallEdge, 'z', crateBounds.Extents.z);
+            }
+
+            return;
+        }
+
+        // Crate vs Crate bounce
+        if (crateA != null && crateB != null)
+        {
+            PhysicsBody bodyA = crateA.GetComponent<PhysicsBody>();
+            PhysicsBody bodyB = crateB.GetComponent<PhysicsBody>();
+
+            if (bodyA != null && bodyB != null)
+            {
+                Coords dir = MathEngine.Normalize(crateB.GetBounds().Center - crateA.GetBounds().Center);
+                Coords relativeVelocity = bodyB.GetVelocity() - bodyA.GetVelocity();
+
+                // Reflect relative velocity along normal
+                Coords impulse = MathEngine.Reflect(relativeVelocity, dir);
+                bodyA.ApplyImpulse(-impulse * 0.1f);
+                bodyB.ApplyImpulse(impulse * 0.1f);
+            }
+        }
     }
 
     // Handles Sphere - Sphere Collisions
@@ -315,7 +389,7 @@ public class CollisionEngine : MonoBehaviour
         Coords playerPos = player.GetBounds().Center;
         float playerRadius = player.radius;
 
-        // --- Player vs Sphere ---
+        // --- Player vs Sphere (Enemy) ---
         if (other.colliderType == CustomCollider.ColliderType.SPHERE)
         {
             Coords otherPos = other.GetBounds().Center;
@@ -330,6 +404,7 @@ public class CollisionEngine : MonoBehaviour
                     Coords direction = MathEngine.Normalize(otherPos - playerPos);
                     body.ApplyImpulse(direction * 8f);
                 }
+                player.gameObject.SetActive(false);
             }
         }
 
