@@ -1,132 +1,154 @@
 /*
  * TankController.cs
  * ----------------------------------------------------------------
- * A movement controller for a 3D tank using a custom math and physics engine.
+ * Controls movement, rotation, and firing logic for a 3D tank using a custom math and physics engine.
  *
  * PURPOSE:
- * - Handle forward/backward movement and Y-axis rotation (yaw) for a tank.
- * - Apply transformation using quaternion and matrix math from MathEngine.
- * - Sync custom math-driven transforms with Unity's Transform system.
+ * - Handle forward/backward movement and yaw (Y-axis) rotation.
+ * - Adjust and fire projectiles with configurable force.
+ * - Apply movement and aiming using custom matrix and quaternion math.
+ * - Integrate with collision and custom physics systems.
  *
  * FEATURES:
- * - Reads user input (WASD) for movement and turning.
- * - Uses custom matrix math to compute and apply position/rotation.
- * - Applies final world transform using Coords and CustomQuaternion.
- * - Adjustable fire force using mouse Y input (with clamping).
+ * - Custom movement and rotation using `MathEngine`.
+ * - Collision-bound movement clamping via `CollisionEngine`.
+ * - Adjustable firing force via mouse scroll input.
+ * - Projectile instantiation with `PhysicsBody` velocity assignment.
+ * - Destroy effects support.
  */
 
 using UnityEngine;
+
 public class TankController : MonoBehaviour
 {
     [Header("Movement Settings")]
-    public float moveSpeed = 5f;       // Units per second
-    public float rotateSpeed = 45f;    // Degrees per second
-    
+    public float moveSpeed = 5f;            // Units per second
+    public float rotateSpeed = 45f;         // Degrees per second
+
     [Header("Weapon Settings")]
-    public GameObject shellPrefab;     // Prefab with CustomCollider + PhysicsBody
-    public float fireForce = 20f;      // Initial velocity magnitude
-    public float minForce = 10f;       // Minimum amount of fire force
-    public float maxForce = 50f;       // Maximum amount of fire force
-    public float forceAdjustSpeed = 10f; // Speed of how quickly it adjusts
-    public Transform firePoint;        // Empty GameObject at tank barrel
-    
+    public GameObject shellPrefab;          // Prefab for fired projectile
+    public float fireForce = 20f;           // Initial projectile speed
+    public float minForce = 10f;            // Minimum firing force
+    public float maxForce = 50f;            // Maximum firing force
+    public float forceAdjustSpeed = 10f;    // Speed of force adjustment
+    public Transform firePoint;             // Barrel end position
+
+    [Header("Destroy Effects")]
+    public GameObject destroyFx;            // Explosion effect prefab
+
     // Internal state
-    private Coords position = new Coords(0, 0, 0);  // Tank's world position
-    private float yawDegrees = 0f;                  // Rotation around Y-axis
+    private Coords position = new Coords(0, 0, 0); // Tank's world position
+    private float yawDegrees = 0f;                 // Rotation around Y-axis
 
     #region Unity Lifecycle
+    /// <summary>
+    /// Initializes the tank's starting position.
+    /// </summary>
     void Start()
     {
-        // Initialize position from Unity transform
         position = new Coords(transform.position);
     }
 
+    /// <summary>
+    /// Main update loop for movement, shooting, and input handling.
+    /// </summary>
     void Update()
     {
-        float deltaTime = Time.deltaTime;
+        if (!GameManager.Instance.gameOver)
+        {
+            float deltaTime = Time.deltaTime;
 
-        HandleInput(deltaTime);
-        HandleFireForceAdjustment(deltaTime);
-        HandleShooting();
-        ApplyTransform();
+            HandleInput(deltaTime);
+            HandleFireForceAdjustment(deltaTime);
+            HandleShooting();
+            ApplyTransform();
+        }
     }
     #endregion
 
     #region Movement & Rotation
-    // Reads input and applies movement + rotation logic using custom math.
+    /// <summary>
+    /// Handles user input for movement and rotation, applying collision clamping.
+    /// </summary>
     private void HandleInput(float deltaTime)
     {
-        // W/S keys for forward/back
+        // W/S for forward/back movement
         float moveInput = Input.GetAxis("Vertical");
 
-        // A/D keys for turning (yaw)
+        // A/D for yaw rotation
         float turnInput = Input.GetAxis("Horizontal");
         yawDegrees += turnInput * rotateSpeed * deltaTime;
 
-        // Build rotation matrix from yaw
+        // Build rotation matrix for yaw
         Matrix yawMatrix = MathEngine.CreateRotationMatrixFromQuaternion(new Coords(0, 1, 0), yawDegrees);
 
-        // Extract forward direction from rotation matrix (Z column)
+        // Extract forward direction (Z column of rotation matrix)
         Coords forward = new Coords(
             yawMatrix.GetValue(0, 2),
             yawMatrix.GetValue(1, 2),
             yawMatrix.GetValue(2, 2)
         );
 
-        // Movement proposal
+        // Proposed movement
         Coords proposedMove = forward * (moveSpeed * moveInput * deltaTime);
-        Coords proposedPos  = position + proposedMove;
+        Coords proposedPos = position + proposedMove;
 
-        // Ask CollisionEngine to clamp against walls
+        // Clamp position against collision bounds
         CustomCollider col = GetComponent<CustomCollider>();
         if (col != null && CollisionEngine.Instance != null)
         {
             proposedPos = CollisionEngine.Instance.ClampToBounds(col, proposedPos);
         }
 
-        // Accept corrected position
+        // Apply final movement
         position = proposedPos;
     }
-    
-    // Applies the final transform matrix and rotation to the Unity object.
+
+    /// <summary>
+    /// Applies the calculated position and rotation to the Unity transform.
+    /// </summary>
     private void ApplyTransform()
     {
-        // Build transform matrix (Translation * Rotation)
+        // Build transformation matrix (Translation * Rotation)
         Matrix translation = MathEngine.CreateTranslationMatrix(position);
         Matrix rotation = MathEngine.CreateRotationMatrixFromQuaternion(new Coords(0, 1, 0), yawDegrees);
         Matrix fullTransform = translation * rotation;
 
-        // Extract final position and apply to Unity transform
+        // Apply position to transform
         Coords finalPosition = MathEngine.ExtractPosition(fullTransform);
         transform.position = finalPosition.ToVector3();
 
-        // Create and apply quaternion rotation to Unity transform
+        // Apply rotation to transform
         CustomQuaternion rot = new CustomQuaternion(new Coords(0, 1, 0), yawDegrees);
         transform.rotation = rot.ToUnityQuaternion();
     }
     #endregion
 
     #region Shooting
-    // Adjusts fireForce based on mouse scroll movement
+    /// <summary>
+    /// Adjusts the firing force using the mouse scroll wheel.
+    /// </summary>
     private void HandleFireForceAdjustment(float deltaTime)
     {
-        // Mouse scroll wheel input (positive = scroll up, negative = scroll down)
         float scroll = Input.GetAxis("Mouse ScrollWheel");
-
         if (Mathf.Abs(scroll) > 0f)
         {
             fireForce += scroll * forceAdjustSpeed;
             fireForce = Mathf.Clamp(fireForce, minForce, maxForce);
         }
     }
+
+    /// <summary>
+    /// Handles projectile firing when the spacebar is pressed.
+    /// </summary>
     private void HandleShooting()
     {
         if (Input.GetKeyDown(KeyCode.Space) && shellPrefab != null)
         {
-            // Compute spawn position
+            // Determine projectile spawn position
             Coords spawnPos = firePoint != null ? new Coords(firePoint.position) : position;
 
-            // Compute forward direction (barrel direction)
+            // Get forward direction from tank's yaw
             Matrix yawMatrix = MathEngine.CreateRotationMatrixFromQuaternion(new Coords(0, 1, 0), yawDegrees);
             Coords forward = new Coords(
                 yawMatrix.GetValue(0, 2),
@@ -134,13 +156,13 @@ public class TankController : MonoBehaviour
                 yawMatrix.GetValue(2, 2)
             );
 
-            // Compute rotation from forward vector
+            // Calculate rotation to face forward
             CustomQuaternion shellRot = MathEngine.FromToRotation(new Coords(0, 0, 1), forward);
 
-            // Instantiate shell with custom quaternion
+            // Spawn projectile
             GameObject shellObj = Instantiate(shellPrefab, spawnPos.ToVector3(), shellRot.ToUnityQuaternion());
 
-            // Apply velocity
+            // Apply projectile velocity
             PhysicsBody body = shellObj.GetComponent<PhysicsBody>();
             if (body != null)
             {

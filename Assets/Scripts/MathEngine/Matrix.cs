@@ -1,105 +1,101 @@
 /*
  * Matrix.cs
- * ----------------------------------------
- * A basic implementation of a mathematical matrix class.
+ * ----------------------------------------------------------------
+ * A lightweight matrix type used for linear algebra and 3D transforms.
  *
  * PURPOSE:
- * - To represent matrices and support basic matrix operations such as
- *   addition and multiplication.
- * - Designed to complement the Coords system by enabling transformations
- *   and linear algebra operations in a custom math framework.
+ * - Represent matrices and support essential operations (addition, multiplication).
+ * - Interoperate with the custom `Coords` type for transformation results.
+ * - Back the math stack used by gameplay scripts (e.g., transform building).
  *
  * FEATURES:
- * - Stores matrix data in a 1D array for performance.
- * - Constructor for defining arbitrary-sized matrices with custom values.
- * - Supports:
- *     - Matrix addition (same dimensions)
- *     - Matrix multiplication (standard dot product logic)
- *     - Conversion to a 4D coordinate (`Coords`) if the shape is compatible
- * - String output for readable debugging.
+ * - Immutable, row-major storage in a flat float array.
+ * - Dimension-safe construction and element access.
+ * - Matrix + Matrix and Matrix * Matrix operators.
+ * - Convert a 4x1 matrix into `Coords` for transform results.
+ * - Readable `ToString()` for quick debugging.
  *
- * NOTES:
- * - Assumes row-major order.
- * - Minimal validation and error handling; intended for internal tools or
- *   educational purposes, not production-grade math libraries.
+ * DESIGN:
+ * - Row-major indexing: index = r * Cols + c.
+ * - Intentional minimal surface area for performance and clarity.
  */
 
-using System.Collections;
-using System.Collections.Generic;
-using UnityEngine;
 using System;
 
 public readonly struct Matrix
 {
-    // Internal flat array for storing values in row-major order
+    // Internal flat array storing values in row-major order.
     private readonly float[] values;
 
-    // Matrix dimensions
+    // Public dimensions.
     public readonly int Rows;
     public readonly int Cols;
-    
+
     #region Constructors
-    // Constructor: initializes matrix with given dimensions and copies values into internal array
+    /// <summary>
+    /// Creates a matrix with explicit dimensions and copies provided values.
+    /// Values are expected in row-major order and must match rows*cols.
+    /// </summary>
     public Matrix(int rows, int cols, float[] inputValues)
     {
+        if (inputValues == null) throw new ArgumentNullException(nameof(inputValues));
         if (inputValues.Length != rows * cols)
             throw new ArgumentException("Input values length does not match matrix dimensions.");
-        
+
         Rows = rows;
         Cols = cols;
         values = new float[rows * cols];
         Array.Copy(inputValues, values, inputValues.Length);
     }
     #endregion
-    
-    #region Getters
-    // Gets the value at the specified row and column (zero-indexed)
+
+    #region Accessors
+    /// <summary>
+    /// Returns the value at (r, c). Indices are zero-based.
+    /// </summary>
     public float GetValue(int r, int c)
     {
         if (r < 0 || r >= Rows || c < 0 || c >= Cols)
             throw new IndexOutOfRangeException($"Matrix index out of range: ({r}, {c})");
-        
+
+        // Row-major index
         return values[r * Cols + c];
-    }
-    
-    // Optionally expose internal values safely
-    public float[] GetValuesCopy()
-    {
-        var copy = new float[values.Length];
-        Array.Copy(values, copy, values.Length);
-        return copy;
     }
     #endregion
 
     #region Conversion Methods
-    // Converts a 4x1 matrix into a Coords (for transformation result use)
+    /// <summary>
+    /// Treats this matrix as a 4x1 column vector and converts to Coords.
+    /// Use after multiplying a 4x4 transform by a 4x1 position vector.
+    /// </summary>
     public Coords AsCoords()
     {
         if (Rows == 4 && Cols == 1)
             return new Coords(values[0], values[1], values[2], values[3]);
-        else
-            throw new InvalidOperationException("Matrix must be 4x1 to convert to Coords.");
+
+        throw new InvalidOperationException("Matrix must be 4x1 to convert to Coords.");
     }
 
-    // Returns the matrix as a readable string for debugging
+    /// <summary>
+    /// Returns a human-readable string of matrix values.
+    /// </summary>
     public override string ToString()
     {
-        string matrix = "";
+        string s = "";
         for (int r = 0; r < Rows; r++)
         {
             for (int c = 0; c < Cols; c++)
-            {
-                matrix += values[r * Cols + c] + " ";
-            }
-            matrix += "\n";
+                s += values[r * Cols + c] + " ";
+            s += "\n";
         }
-
-        return matrix;
+        return s;
     }
     #endregion
-    
+
     #region Matrix Arithmetic Operators
-    // Adds two matrices element-wise, returning a new matrix
+    /// <summary>
+    /// Element-wise addition. Dimensions must match.
+    /// </summary>
     public static Matrix operator +(Matrix a, Matrix b)
     {
         if (a.Rows != b.Rows || a.Cols != b.Cols)
@@ -112,14 +108,19 @@ public readonly struct Matrix
         return new Matrix(a.Rows, a.Cols, result);
     }
 
-    // Multiplies two matrices using standard matrix multiplication rules
+    /// <summary>
+    /// Standard matrix multiplication: (a.Rows x a.Cols) * (b.Rows x b.Cols).
+    /// Requires a.Cols == b.Rows. Result is (a.Rows x b.Cols).
+    /// </summary>
     public static Matrix operator *(Matrix a, Matrix b)
     {
         if (a.Cols != b.Rows)
-            throw new InvalidOperationException($"Matrix multiplication failed: {a.Rows}x{a.Cols} * {b.Rows}x{b.Cols}");
+            throw new InvalidOperationException(
+                $"Matrix multiplication failed: {a.Rows}x{a.Cols} * {b.Rows}x{b.Cols}");
 
         float[] result = new float[a.Rows * b.Cols];
 
+        // Triple loop: row (i), column (j), and accumulator over k
         for (int i = 0; i < a.Rows; i++)
         {
             for (int j = 0; j < b.Cols; j++)
@@ -127,6 +128,7 @@ public readonly struct Matrix
                 float sum = 0f;
                 for (int k = 0; k < a.Cols; k++)
                 {
+                    // a[i,k] * b[k,j]
                     sum += a.values[i * a.Cols + k] * b.values[k * b.Cols + j];
                 }
                 result[i * b.Cols + j] = sum;

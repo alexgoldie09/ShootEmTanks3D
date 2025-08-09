@@ -4,81 +4,103 @@
  * Represents an axis-aligned bounding box (AABB) using Coords.
  *
  * PURPOSE:
- * - Provides a simple and efficient volume for spatial reasoning.
- * - Used in collision detection for overlap, containment, and visualization.
+ * - Provide a simple, efficient volume for spatial reasoning and queries.
+ * - Support collision detection for overlap, containment, and debug display.
  *
  * FEATURES:
- * - Holds center and size in world space.
- * - Computes extents, min, max from size.
- * - Includes overlap and point containment checks.
- * - Editor Gizmo support for wireframe debug rendering.
+ * - Stores center and size in world space.
+ * - Computes extents, min, and max on the fly.
+ * - Overlap test (AABB vs AABB) and point containment.
+ * - String dump for quick debugging.
  */
-
-using UnityEngine;
 
 public class CustomBounds
 {
-    #region Bounds Fields
-    // The center point of the bounds in world space.
+    #region Fields & Properties
+    /// <summary>
+    /// Center point of the bounds in world space.
+    /// </summary>
     public Coords Center { get; private set; }
-    
-    // The total size (width, height, depth) of the bounds.
+
+    /// <summary>
+    /// Total size (width, height, depth) of the bounds.
+    /// </summary>
     public Coords Size { get; private set; }
-    
-    // Half of the size in each axis direction.
-    public Coords Extents => new Coords(Size.x / 2f, Size.y / 2f, Size.z / 2f);
-    
-    // The minimum corner of the bounds.
+
+    /// <summary>
+    /// Half of the size along each axis.
+    /// </summary>
+    public Coords Extents => new Coords(Size.x * 0.5f, Size.y * 0.5f, Size.z * 0.5f);
+
+    /// <summary>
+    /// Minimum corner (Center - Extents).
+    /// </summary>
     public Coords Min => Center - Extents;
-    
-    // The maximum corner of the bounds.
+
+    /// <summary>
+    /// Maximum corner (Center + Extents).
+    /// </summary>
     public Coords Max => Center + Extents;
     #endregion
-    
-    #region Bounds Methods
-    // Creates a new CustomBounds from a center and size.
+
+    #region Construction & Mutation
+    /// <summary>
+    /// Create a new AABB from center and size.
+    /// </summary>
     public CustomBounds(Coords center, Coords size)
     {
         Center = center;
         Size = size;
     }
-    
-    // Updates the bounds' center and size.
+
+    /// <summary>
+    /// Update the bounds with a new center and size.
+    /// </summary>
     public void Set(Coords newCenter, Coords newSize)
     {
         Center = newCenter;
         Size = newSize;
     }
-    
-    // Returns true if the bounds contain the given point.
+    #endregion
+
+    #region Queries
+    /// <summary>
+    /// Returns true if the bounds contain the given point (inclusive on faces).
+    /// </summary>
     public bool Contains(Coords point)
     {
+        // Compute corners once to avoid recomputation per axis.
         Coords min = Min;
         Coords max = Max;
 
+        // Point-in-AABB test (inclusive).
         return (point.x >= min.x && point.x <= max.x) &&
                (point.y >= min.y && point.y <= max.y) &&
                (point.z >= min.z && point.z <= max.z);
     }
-    
-    // Returns true if this bounds overlaps with another bounds.
+
+    /// <summary>
+    /// Returns true if this AABB overlaps another AABB (inclusive on faces).
+    /// </summary>
     public bool Intersects(CustomBounds other)
     {
+        // Grab corners once for both boxes.
         Coords aMin = this.Min;
         Coords aMax = this.Max;
         Coords bMin = other.Min;
         Coords bMax = other.Max;
 
+        // Separating Axis Theorem for AABBs reduces to interval overlap on each axis.
         return (aMin.x <= bMax.x && aMax.x >= bMin.x) &&
                (aMin.y <= bMax.y && aMax.y >= bMin.y) &&
                (aMin.z <= bMax.z && aMax.z >= bMin.z);
     }
     #endregion
-    
+
     #region Debugging
-    
-    // String representation for debugging.
+    /// <summary>
+    /// Human-readable summary for logs and inspectors.
+    /// </summary>
     public override string ToString() => $"Center: {Center}, Size: {Size}";
     #endregion
 }
-

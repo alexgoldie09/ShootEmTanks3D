@@ -1,26 +1,45 @@
+/*
+ * PhysicsBody.cs
+ * ----------------------------------------------------------------
+ * Represents a physics-enabled object in the custom physics system.
+ *
+ * PURPOSE:
+ * - Handle basic motion integration (position, velocity, acceleration).
+ * - Apply gravity and projectile orientation.
+ * - Respond to collisions with ground, walls, and other physics bodies.
+ *
+ * FEATURES:
+ * - Uses Coords and MathEngine for all math operations.
+ * - Supports gravity toggle and bounciness.
+ * - Includes sphere collision resolution, impulse application, and stop methods for ground/walls.
+ * - Optionally rotates projectiles to face their velocity vector.
+ */
+
 using UnityEngine;
 
 public class PhysicsBody : MonoBehaviour
 {
     [Header("Physics Settings")]
-    public float bounciness = 0.5f;
-    public float restitutionThreshold = 0.2f;
-    public bool useGravity = true;
-    
+    public float bounciness = 0.5f;           // Bounce factor after collisions
+    public float restitutionThreshold = 0.2f; // Velocity threshold to stop bouncing
+    public bool useGravity = true;            // Apply gravity if true
+
     [Header("Projectile Settings")]
-    public float projectileForce = 10f;
-    public bool isProjectile = false;
+    public float projectileForce = 10f;       // Initial force for projectiles
+    public bool isProjectile = false;         // Rotate to face velocity if true
 
     // Internal state
-    private Coords position;
-    private Coords velocity = Coords.Zero();
-    private Coords acceleration = Coords.Zero();  // Rate of change of velocity
+    private Coords position;                  // Current position in world space
+    private Coords velocity = Coords.Zero();  // Current velocity
+    private Coords acceleration = Coords.Zero(); // Current acceleration (rate of velocity change)
 
+    // Constant gravity acceleration
     private const float GRAVITY = -9.81f;
 
     #region Unity Lifecycle
     private void Start()
     {
+        // Cache initial position
         position = new Coords(transform.position);
     }
 
@@ -28,10 +47,10 @@ public class PhysicsBody : MonoBehaviour
     {
         float deltaTime = Time.deltaTime;
 
-        // Reset acceleration at start of frame
+        // Reset acceleration each frame
         acceleration = Coords.Zero();
 
-        // Apply gravity as acceleration
+        // Apply gravity
         if (useGravity)
             acceleration.y += GRAVITY;
 
@@ -41,96 +60,95 @@ public class PhysicsBody : MonoBehaviour
         // Integrate velocity → position
         Matrix translation = MathEngine.CreateTranslationMatrix(velocity * deltaTime);
         Matrix newWorld = translation * MathEngine.CreateTranslationMatrix(position);
-
         position = MathEngine.ExtractPosition(newWorld);
 
-        // Sync Unity transform
+        // Apply to Unity transform
         transform.position = position.ToVector3();
-        
-        // Only orient if flagged as projectile
+
+        // If projectile, orient in direction of velocity
         if (isProjectile && MathEngine.Magnitude(velocity) > 0.01f)
         {
-            CustomQuaternion rot = MathEngine.FromToRotation(new Coords(0, 0, 1), MathEngine.Normalize(velocity));
+            CustomQuaternion rot = MathEngine.FromToRotation(
+                new Coords(0, 0, 1), 
+                MathEngine.Normalize(velocity)
+            );
             transform.rotation = rot.ToUnityQuaternion();
         }
     }
     #endregion
 
     #region Collision Response Methods
+    /// <summary>
+    /// Resolves a sphere collision by separating and reflecting velocity.
+    /// </summary>
     public void ResolveSphereCollision(Coords normal, float penetration, PhysicsBody other = null)
     {
-        // Position correction (basic)
+        // Correct position to remove penetration
         if (penetration > 0f)
         {
-            // Push this body out along the normal
             position += normal * penetration;
             transform.position = position.ToVector3();
         }
 
-        // Velocity correction
+        // Project velocity onto collision normal
         float velAlongNormal = MathEngine.Dot(velocity, normal);
 
-        if (velAlongNormal < 0f) // moving into collision
+        // If moving into collision, adjust velocity
+        if (velAlongNormal < 0f)
         {
             if (bounciness > 0f)
-            {
-                // Reflect with restitution
-                velocity = MathEngine.Reflect(velocity, normal) * bounciness;
-            }
+                velocity = MathEngine.Reflect(velocity, normal) * bounciness; // Bounce
             else
-            {
-                // Kill velocity into the surface, keep tangential
-                velocity -= normal * velAlongNormal;
-            }
+                velocity -= normal * velAlongNormal; // Remove normal component (slide)
         }
     }
 
-
+    /// <summary>
+    /// Adds an instantaneous change in velocity.
+    /// </summary>
     public void ApplyImpulse(Coords impulse)
     {
         velocity += impulse;
     }
-    
-    // Stops a body on a ground surface with bounce & restitution.
-    // Works for both spheres (halfHeight = radius) and AABBs (halfHeight = bounds.Extents.y).
+
+    /// <summary>
+    /// Stops and optionally bounces object on ground.
+    /// </summary>
     public void StopOnGround(Coords surfaceNormal, float groundHeight, float halfHeight = 0f)
     {
-        // Reflect velocity based on surface normal (bounce)
+        // Bounce off surface
         velocity = MathEngine.Reflect(velocity, surfaceNormal) * bounciness;
 
-        // Apply restitution threshold (settle when very small)
         if (MathEngine.Magnitude(velocity) < restitutionThreshold)
         {
+            // Stop completely and snap to ground
             velocity = Coords.Zero();
             acceleration = Coords.Zero();
-
-            // Snap object exactly on ground
             position = new Coords(position.x, groundHeight + halfHeight, position.z);
         }
         else
         {
-            // Prevent sinking below ground while still bouncing
+            // Prevent sinking while still bouncing
             position = new Coords(position.x, groundHeight + halfHeight + 0.01f, position.z);
         }
 
         transform.position = position.ToVector3();
     }
-    
-    // Stops a body on a wall with bounce & restitution.
-    // Works for both spheres (halfExtent = radius) and AABBs (halfExtent = bounds.Extents.x or z).
+
+    /// <summary>
+    /// Stops and optionally bounces object on a wall.
+    /// </summary>
     public void StopOnWall(Coords surfaceNormal, float boundaryPos, char axis, float halfExtent = 0f)
     {
-        // Reflect velocity (bounce)
         velocity = MathEngine.Reflect(velocity, surfaceNormal) * bounciness;
 
-        // Apply restitution threshold (settle when very small)
         if (MathEngine.Magnitude(velocity) < restitutionThreshold)
         {
             velocity = Coords.Zero();
             acceleration = Coords.Zero();
         }
 
-        // Correct position so object sits flush against wall
+        // Snap flush to wall depending on axis
         if (axis == 'x')
             position = new Coords(boundaryPos + (surfaceNormal.x * halfExtent), position.y, position.z);
         else if (axis == 'z')
@@ -139,12 +157,9 @@ public class PhysicsBody : MonoBehaviour
         transform.position = position.ToVector3();
     }
     #endregion
-    
-    #region Velocity Accessors
-    // Sets the current velocity of the body (overwrites existing velocity).
-    public void SetVelocity(Coords newVelocity) => velocity = newVelocity;
-    
-    // Gets the current velocity of the body.
-    public Coords GetVelocity() => velocity;
+
+    #region Accessors & Mutators
+    public void SetVelocity(Coords newVelocity) => velocity = newVelocity; // Overwrites velocity
+    public Coords GetVelocity() => velocity;                               // Gets velocity
     #endregion
 }
