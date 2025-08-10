@@ -72,8 +72,9 @@ public class CameraFollowPlayer : MonoBehaviour
         // Apply smoothed position to the Unity transform
         transform.position = smoothedPos.ToVector3();
 
-        // Make the camera look ahead in the player's forward direction
-        transform.LookAt((playerPos + forward).ToVector3());
+        // Make the camera look ahead in the player's forward direction using LookRotation
+        CustomQuaternion camRot = MathEngine.LookRotation(forward, up);
+        transform.rotation = camRot.ToUnityQuaternion();
     }
     #endregion
 }

@@ -130,11 +130,28 @@ public static class MathEngine
     }
     
     /// <summary>
-    /// Creates a rotation matrix from an axis and angle (degrees) via quaternion conversion.
+    /// Creates a rotation matrix from yaw only (angle in radians).
     /// </summary>
-    public static Matrix CreateRotationMatrixFromQuaternion(Coords axis, float angleDegrees)
+    public static Matrix CreateRotationY(float angleRad)
     {
-        return new CustomQuaternion(axis, angleDegrees).ToMatrix();
+        float c = Mathf.Cos(angleRad);
+        float s = Mathf.Sin(angleRad);
+
+        float[] m = {
+            c,   0,  s,  0,
+            0,   1,  0,  0,
+            -s,   0,  c,  0,
+            0,   0,  0,  1
+        };
+        return new Matrix(4, 4, m);
+    }
+
+    /// <summary>
+    /// Returns a rotation matrix from yaw only (angle in degrees).
+    /// </summary>
+    public static Matrix CreateRotationYDegrees(float angleDeg)
+    {
+        return CreateRotationY(angleDeg * Mathf.Deg2Rad);
     }
     #endregion
 
@@ -210,7 +227,59 @@ public static class MathEngine
 
         Matrix rotMat = new Matrix(4, 4, m);
 
-        return CustomQuaternion.FromMatrix(rotMat);
+        return FromMatrix(rotMat);
+    }
+    
+    /// <summary>
+    /// Builds a quaternion from a 4x4 rotation matrix using the trace method.
+    /// </summary>
+    public static CustomQuaternion FromMatrix(Matrix m)
+    {
+        // The trace is the sum of the matrix's diagonal rotation elements.
+        // If trace > 0, it means the scalar (w) component is the largest contributor.
+        float trace = m.GetValue(0, 0) + m.GetValue(1, 1) + m.GetValue(2, 2);
+
+        float w, x, y, z;
+
+        if (trace > 0f)
+        {
+            // Compute scale factor (s) to extract w first.
+            float s = Mathf.Sqrt(trace + 1f) * 2f; // s = 4 * w
+            w = 0.25f * s;
+            x = (m.GetValue(2, 1) - m.GetValue(1, 2)) / s;
+            y = (m.GetValue(0, 2) - m.GetValue(2, 0)) / s;
+            z = (m.GetValue(1, 0) - m.GetValue(0, 1)) / s;
+        }
+        else if (m.GetValue(0, 0) > m.GetValue(1, 1) && m.GetValue(0, 0) > m.GetValue(2, 2))
+        {
+            // X-axis term is the largest — extract x first for numerical stability.
+            float s = Mathf.Sqrt(1f + m.GetValue(0, 0) - m.GetValue(1, 1) - m.GetValue(2, 2)) * 2f; // s = 4 * x
+            w = (m.GetValue(2, 1) - m.GetValue(1, 2)) / s;
+            x = 0.25f * s;
+            y = (m.GetValue(0, 1) + m.GetValue(1, 0)) / s;
+            z = (m.GetValue(0, 2) + m.GetValue(2, 0)) / s;
+        }
+        else if (m.GetValue(1, 1) > m.GetValue(2, 2))
+        {
+            // Y-axis term is the largest — extract y first.
+            float s = Mathf.Sqrt(1f + m.GetValue(1, 1) - m.GetValue(0, 0) - m.GetValue(2, 2)) * 2f; // s = 4 * y
+            w = (m.GetValue(0, 2) - m.GetValue(2, 0)) / s;
+            x = (m.GetValue(0, 1) + m.GetValue(1, 0)) / s;
+            y = 0.25f * s;
+            z = (m.GetValue(1, 2) + m.GetValue(2, 1)) / s;
+        }
+        else
+        {
+            // Z-axis term is the largest — extract z first.
+            float s = Mathf.Sqrt(1f + m.GetValue(2, 2) - m.GetValue(0, 0) - m.GetValue(1, 1)) * 2f; // s = 4 * z
+            w = (m.GetValue(1, 0) - m.GetValue(0, 1)) / s;
+            x = (m.GetValue(0, 2) + m.GetValue(2, 0)) / s;
+            y = (m.GetValue(1, 2) + m.GetValue(2, 1)) / s;
+            z = 0.25f * s;
+        }
+
+        // Return the constructed quaternion from extracted components.
+        return new CustomQuaternion(x, y, z, w);
     }
     #endregion
 

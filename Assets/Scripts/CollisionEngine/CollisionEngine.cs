@@ -224,12 +224,121 @@ public class CollisionEngine : MonoBehaviour
         return t >= 0f;
     }
     #endregion
+    
+    #region Segments
+    /// <summary>
+    /// Checks if a line segment intersects a sphere and outputs the hit point.
+    /// Uses quadratic equation to solve for intersection between ray and sphere.
+    /// </summary>
+    public bool SegmentIntersectsSphere(Coords p0, Coords p1, Coords center, float radius, out Coords hit)
+    {
+        // Vector from p0 to p1
+        Coords d = p1 - p0;
+        // Vector from sphere center to p0
+        Coords m = p0 - center;
 
+        // Quadratic coefficients
+        float a = MathEngine.Dot(d, d);                    // d·d
+        float b = 2f * MathEngine.Dot(m, d);               // 2m·d
+        float c = MathEngine.Dot(m, m) - radius * radius;  // m·m - r²
+
+        // Discriminant check (b² - 4ac)
+        float discriminant = b * b - 4 * a * c;
+        if (discriminant < 0)
+        {
+            // No intersection — ray misses sphere entirely
+            hit = Coords.Zero();
+            return false;
+        }
+
+        // Compute potential intersection points (t0, t1) along the segment
+        float sqrtD = Mathf.Sqrt(discriminant);
+        float t0 = (-b - sqrtD) / (2f * a);
+        float t1 = (-b + sqrtD) / (2f * a);
+
+        // Choose the first valid t in [0, 1] range
+        float t = (t0 >= 0f && t0 <= 1f) ? t0 :
+                  ((t1 >= 0f && t1 <= 1f) ? t1 : -1f);
+
+        if (t >= 0f)
+        {
+            // Intersection point = p0 + t*d
+            hit = p0 + d * t;
+            return true;
+        }
+
+        // No intersection within segment bounds
+        hit = Coords.Zero();
+        return false;
+    }
+
+    /// <summary>
+    /// Checks if a line segment intersects an axis-aligned bounding box (AABB).
+    /// Uses the "slab method" for ray-box intersection.
+    /// </summary>
+    public bool SegmentIntersectsAABB(Coords p0, Coords p1, CustomBounds bounds, out Coords hit)
+    {
+        Coords min = bounds.Min;
+        Coords max = bounds.Max;
+        Coords dir = p1 - p0; // Direction vector of the segment
+
+        float tMin = 0f; // Enter time along segment
+        float tMax = 1f; // Exit time along segment
+
+        // Loop through X, Y, Z axes
+        for (int i = 0; i < 3; i++)
+        {
+            // Pick component based on axis index
+            float origin = (i == 0) ? p0.x : (i == 1 ? p0.y : p0.z);
+            float direction = (i == 0) ? dir.x : (i == 1 ? dir.y : dir.z);
+            float minB = (i == 0) ? min.x : (i == 1 ? min.y : min.z);
+            float maxB = (i == 0) ? max.x : (i == 1 ? max.y : max.z);
+
+            // Ray is parallel to slab
+            if (Mathf.Abs(direction) < Mathf.Epsilon)
+            {
+                // Outside slab → no intersection
+                if (origin < minB || origin > maxB)
+                {
+                    hit = Coords.Zero();
+                    return false;
+                }
+            }
+            else
+            {
+                // Compute intersection t values with near and far planes
+                float ood = 1f / direction; // Inverse direction
+                float t1 = (minB - origin) * ood;
+                float t2 = (maxB - origin) * ood;
+
+                // Swap if needed so t1 is near and t2 is far
+                if (t1 > t2) { float tmp = t1; t1 = t2; t2 = tmp; }
+
+                // Expand entry and shrink exit interval
+                tMin = Mathf.Max(tMin, t1);
+                tMax = Mathf.Min(tMax, t2);
+
+                // If the interval is invalid, no hit occurs
+                if (tMin > tMax)
+                {
+                    hit = Coords.Zero();
+                    return false;
+                }
+            }
+        }
+
+        // If we reach here, there is an intersection
+        float tHit = tMin; // First intersection point along segment
+        hit = p0 + dir * tHit;
+        return true;
+    }
+    #endregion
+    
     #region Dispatcher
     /// <summary>
     /// Routes a pair of colliders to the correct shape-based collision handler.
     /// </summary>
-    private static void HandleCollision(CustomCollider a, CustomCollider b)
+    private void HandleCollision(CustomCollider a, CustomCollider b)
     {
         var typeA = a.colliderType;
         var typeB = b.colliderType;
@@ -294,7 +403,7 @@ public class CollisionEngine : MonoBehaviour
     /// - Wall vs crate (stop against wall)
     /// - Crate vs crate (basic bounce impulse)
     /// </summary>
-    private static void HandleAABBAABBCollision(CustomCollider a, CustomCollider b)
+    private void HandleAABBAABBCollision(CustomCollider a, CustomCollider b)
     {
         if (!a.GetBounds().Intersects(b.GetBounds()))
             return; // early out if not overlapping
@@ -395,7 +504,7 @@ public class CollisionEngine : MonoBehaviour
     /// <summary>
     /// Sphere ↔ Sphere resolution (split correction using ResolveSphereCollision).
     /// </summary>
-    private static void HandleSphereSphereCollision(CustomCollider a, CustomCollider b)
+    private void HandleSphereSphereCollision(CustomCollider a, CustomCollider b)
     {
         Coords posA   = a.GetBounds().Center;
         Coords posB   = b.GetBounds().Center;
@@ -425,7 +534,7 @@ public class CollisionEngine : MonoBehaviour
     /// - Wall: stop at X/Z faces
     /// - Neutral AABB: currently treated like trigger (no physics)
     /// </summary>
-    private static void HandleAABBSphereCollision(CustomCollider box, CustomCollider sphere)
+    private void HandleAABBSphereCollision(CustomCollider box, CustomCollider sphere)
     {
         Coords center = sphere.GetBounds().Center;
         Coords min    = box.GetBounds().Min;
@@ -477,7 +586,7 @@ public class CollisionEngine : MonoBehaviour
     /// - Player vs Sphere: knock sphere away, trigger game over and FX.
     /// - Player vs AABB (non-ground, non-wall): push AABB if it has PhysicsBody.
     /// </summary>
-    private static void HandlePlayerCollision(CustomCollider player, CustomCollider other)
+    private void HandlePlayerCollision(CustomCollider player, CustomCollider other)
     {
         Coords playerPos   = player.GetBounds().Center;
         float  playerRadius = player.radius;
@@ -534,7 +643,7 @@ public class CollisionEngine : MonoBehaviour
     /// <summary>
     /// Point ↔ Sphere: destroy point and damage the sphere's Enemy component if present.
     /// </summary>
-    private static void HandlePointToSphere(CustomCollider point, CustomCollider sphere)
+    private void HandlePointToSphere(CustomCollider point, CustomCollider sphere)
     {
         Coords pointPos    = point.GetBounds().Center;
         Coords sphereCenter = sphere.GetBounds().Center;
@@ -553,7 +662,7 @@ public class CollisionEngine : MonoBehaviour
     /// <summary>
     /// Point ↔ AABB: apply an impulse to the box (if it has PhysicsBody) and destroy the point.
     /// </summary>
-    private static void HandlePointToAABB(CustomCollider point, CustomCollider box)
+    private void HandlePointToAABB(CustomCollider point, CustomCollider box)
     {
         Coords pointPos = point.GetBounds().Center;
 
@@ -579,7 +688,7 @@ public class CollisionEngine : MonoBehaviour
     /// Computes penetration distances along X, Y, Z from a position into an AABB.
     /// Used to decide the primary axis of resolution.
     /// </summary>
-    private static (float penX, float penY, float penZ) GetPenetrationDepth(Coords pos, CustomBounds bounds)
+    private (float penX, float penY, float penZ) GetPenetrationDepth(Coords pos, CustomBounds bounds)
     {
         Coords min = bounds.Min;
         Coords max = bounds.Max;

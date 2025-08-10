@@ -79,10 +79,10 @@ public class TankController : MonoBehaviour
         float turnInput = Input.GetAxis("Horizontal");
         yawDegrees += turnInput * rotateSpeed * deltaTime;
 
-        // Build rotation matrix for yaw
-        Matrix yawMatrix = MathEngine.CreateRotationMatrixFromQuaternion(new Coords(0, 1, 0), yawDegrees);
-
-        // Extract forward direction (Z column of rotation matrix)
+        // Get forward direction from tank's yaw
+        Matrix yawMatrix = MathEngine.CreateRotationYDegrees(yawDegrees);
+        
+        // Extract forward (Z column)
         Coords forward = new Coords(
             yawMatrix.GetValue(0, 2),
             yawMatrix.GetValue(1, 2),
@@ -109,17 +109,17 @@ public class TankController : MonoBehaviour
     /// </summary>
     private void ApplyTransform()
     {
-        // Build transformation matrix (Translation * Rotation)
+        // Build transformation matrix
         Matrix translation = MathEngine.CreateTranslationMatrix(position);
-        Matrix rotation = MathEngine.CreateRotationMatrixFromQuaternion(new Coords(0, 1, 0), yawDegrees);
+        Matrix rotation = MathEngine.CreateRotationYDegrees(yawDegrees);
         Matrix fullTransform = translation * rotation;
 
         // Apply position to transform
         Coords finalPosition = MathEngine.ExtractPosition(fullTransform);
         transform.position = finalPosition.ToVector3();
 
-        // Apply rotation to transform
-        CustomQuaternion rot = new CustomQuaternion(new Coords(0, 1, 0), yawDegrees);
+        // Apply rotation from matrix
+        CustomQuaternion rot = MathEngine.FromMatrix(fullTransform);
         transform.rotation = rot.ToUnityQuaternion();
     }
     #endregion
@@ -149,7 +149,8 @@ public class TankController : MonoBehaviour
             Coords spawnPos = firePoint != null ? new Coords(firePoint.position) : position;
 
             // Get forward direction from tank's yaw
-            Matrix yawMatrix = MathEngine.CreateRotationMatrixFromQuaternion(new Coords(0, 1, 0), yawDegrees);
+            Matrix yawMatrix = MathEngine.CreateRotationYDegrees(yawDegrees);
+            // Extract forward (Z column)
             Coords forward = new Coords(
                 yawMatrix.GetValue(0, 2),
                 yawMatrix.GetValue(1, 2),
